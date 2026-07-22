@@ -1,0 +1,75 @@
+version: "2"
+run:
+  issues-exit-code: 1
+  tests: false
+
+linters:
+  default: all
+  disable:
+    - bodyclose
+    - depguard
+    - err113
+    - errchkjson
+    - exhaustive
+    - exhaustruct
+    - forbidigo
+    - gochecknoglobals
+    - goconst
+    - interfacebloat
+    - ireturn
+    - mnd
+    - noctx
+    - noinlineerr
+    - nolintlint
+    - revive
+    - tagalign
+    - tagliatelle
+    - wrapcheck
+    - wsl
+    - varnamelen
+
+  settings:
+    cyclop:
+      max-complexity: 16
+    gocritic:
+      disabled-checks:
+        - deprecatedComment
+        - exitAfterDefer
+        - ifElseChain
+    godot:
+      period: false
+    lll:
+      line-length: 120
+      tab-width: 1
+    misspell:
+      locale: US
+    nakedret:
+      max-func-lines: 30
+    nestif:
+      min-complexity: 10
+    nlreturn:
+      block-size: 2
+
+  exclusions:
+    generated: lax
+    rules:
+      # Due the complexity/size of the message its hard to avoid
+      # longer functions.
+      - path: internal/envoy/resources.go
+        linters:
+          - funlen
+      # Older interface methods have to remain in order to properly
+      # realize the Envoy interface requirements.
+      - path: internal/ctls/logs/logs.go
+        linters:
+          - modernize
+      - path: internal/ctls/logs/logger.go
+        linters:
+          - modernize
+      - path: internal/args
+        linters:
+          - funlen
+    paths:
+      - test/
+      - tools/
+      - vendor/

@@ -1,0 +1,118 @@
+{{- if .Values.holepunch.staticConfig }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "holepunch.fullname" . }}-static-cfg
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+data:
+  static.yaml: |
+    {{- toYaml .Values.holepunch.staticConfig | nindent 4 }}
+{{- end }}
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "holepunch.fullname" . }}-envoy
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+data:
+  envoy.yaml: |
+    node:
+      cluster: {{ .Values.envoy.node.cluster }}
+      id: {{ .Values.envoy.node.id }}
+
+    dynamic_resources:
+      lds_config:
+        resource_api_version: V3
+        api_config_source:
+          api_type: GRPC
+          transport_api_version: V3
+          grpc_services:
+          - envoy_grpc:
+              cluster_name: xds_cluster
+          set_node_on_first_message_only: true
+      
+      cds_config:
+        resource_api_version: V3
+        api_config_source:
+          api_type: GRPC
+          transport_api_version: V3
+          grpc_services:
+          - envoy_grpc:
+              cluster_name: xds_cluster
+          set_node_on_first_message_only: true
+
+    static_resources:
+      clusters:
+      - name: xds_cluster
+        connect_timeout: 1s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: xds_cluster
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ include "holepunch.fullname" . }}-xds.{{ .Release.Namespace }}.svc.cluster.local
+                    port_value: {{ .Values.holepunch.service.xds.port }}
+      
+      - name: auth_service
+        connect_timeout: 1s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: auth_service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ include "holepunch.fullname" . }}-auth.{{ .Release.Namespace }}.svc.cluster.local
+                    port_value: {{ .Values.holepunch.service.auth.port }}
+
+      {{- if .Values.envoy.otel.address }}
+      - name: otel_collector
+        connect_timeout: 1s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        {{- if .Values.envoy.otel.gRPC }}
+        http2_protocol_options: {}
+        {{- end }}
+        load_assignment:
+          cluster_name: otel_collector
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ .Values.envoy.otel.address }}
+                    port_value: {{ .Values.envoy.otel.port }}   
+      {{- else if .Values.jaegerAllInOne.enabled }}
+      - name: otel_collector
+        connect_timeout: 1s
+        type: STRICT_DNS
+        lb_policy: ROUND_ROBIN
+        http2_protocol_options: {}
+        load_assignment:
+          cluster_name: otel_collector
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: {{ include "holepunch.fullname" . }}-jaeger.{{ .Release.Namespace }}.svc.cluster.local
+                    port_value: 4317
+      {{- end }}
+
+    admin:
+      address:
+        socket_address:
+          address: 0.0.0.0
+          port_value: {{ .Values.envoy.service.admin.port }}

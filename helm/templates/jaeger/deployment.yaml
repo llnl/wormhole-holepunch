@@ -1,0 +1,41 @@
+{{- if .Values.jaegerAllInOne.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "holepunch.fullname" . }}-jaeger
+  labels:
+    app.kubernetes.io/component: jaeger
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: jaeger
+      {{- include "holepunch.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: jaeger
+        {{- include "holepunch.labels" . | nindent 8 }}
+
+    spec:
+      serviceAccountName: {{ include "holepunch.serviceAccountName" . }}-jaeger
+
+      containers:
+        - name: jaeger
+          image: {{ .Values.jaegerAllInOne.image.repository }}:{{ .Values.jaegerAllInOne.image.tag }}
+          imagePullPolicy: {{ .Values.jaegerAllInOne.image.pullPolicy }}
+          args:
+            - --collector.queue-size=2000
+            - --memory.max-traces=300000
+          ports:
+            - name: frontend
+              containerPort: 16686
+            - name: otlp
+              containerPort: 4317
+            - name: zipkin
+              containerPort: 9411
+          resources:
+            {{- toYaml .Values.jaegerAllInOne.resources | nindent 12 }}
+{{- end }}

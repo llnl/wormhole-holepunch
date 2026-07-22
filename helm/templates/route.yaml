@@ -1,0 +1,22 @@
+{{ $ctx := . }}
+{{- range $key, $value := .Values.holepunch.wildcardHosts }}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "holepunch.fullname" $ctx }}-{{ $key }}
+  labels:
+    {{- include "holepunch.labels" $ctx | nindent 4 }}
+spec:
+  host: {{ $value }}
+  to:
+    kind: Service
+    name: {{ include "holepunch.fullname" $ctx }}-envoy
+    weight: 100
+  port:
+    targetPort: {{ $ctx.Values.envoy.service.gateway.name }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: Subdomain
+{{- end }}

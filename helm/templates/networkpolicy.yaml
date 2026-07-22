@@ -1,0 +1,155 @@
+{{- if .Values.networkPolicies.enabled }}
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-namespace-to-nats
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: nats
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-envoy-to-xds
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: holepunch-xds
+      {{- include "holepunch.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: envoy
+            {{- include "holepunch.selectorLabels" . | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.holepunch.service.xds.port }}
+    
+---
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-envoy-to-auth
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: holepunch-auth
+      {{- include "holepunch.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+      - podSelector:
+          matchLabels:
+            app.kubernetes.io/component: envoy
+            {{- include "holepunch.selectorLabels" . | nindent 12 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.holepunch.service.auth.port }}
+      
+---
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-namespaces-to-admin
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: holepunch-admin
+      {{- include "holepunch.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+  {{- range .Values.networkPolicies.admin.allowedNamespaces }}
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: {{ . | quote }}
+  {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.holepunch.service.admin.port }}
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-metrics-to-envoy
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: envoy
+      {{- include "holepunch.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+  {{- range .Values.networkPolicies.metrics.allowedNamespaces }}
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: {{ . | quote }}
+  {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.envoy.service.admin.port }}
+
+---
+{{- if .Values.networkPolicies.denyAllIngress }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-envoy
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  podSelector: 
+    matchLabels:
+      app.kubernetes.io/component: envoy
+      {{- include "holepunch.selectorLabels" . | nindent 6 }}
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: ingress
+  policyTypes:
+    - Ingress
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-ingress
+  labels:
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  podSelector: {} # Selects all pods in the namespace
+  policyTypes:
+    - Ingress
+{{- end }}
+{{- end }}

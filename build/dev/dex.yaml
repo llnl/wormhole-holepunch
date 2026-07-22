@@ -1,0 +1,32 @@
+issuer: http://dex.holepunch.localwormhole:5556
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+staticClients:
+  - id: oauth2-proxy
+    name: OAuth2 Proxy
+    # set this to a strong secret and keep it in env/compose secrets in real usage
+    secret: oauth2-proxy-secret
+    redirectURIs:
+      - http://oauth.holepunch.localwormhole:4180/oauth2/callback
+    grantTypes:
+      - authorization_code
+      - refresh_token
+
+enablePasswordDB: true
+
+staticPasswords:
+  - email: bar@example.com
+    # bcrypt hash of the string "password": $(echo password | htpasswd -BinC 10 admin | cut -d: -f2)
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: bar
+    userID: bar
+  - email: foo@example.com
+    # bcrypt hash of the string "password": $(echo password | htpasswd -BinC 10 admin | cut -d: -f2)
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: foo
+    userID: foo

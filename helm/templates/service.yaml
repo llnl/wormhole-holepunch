@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "holepunch.fullname" . }}-xds
+  labels:
+    app.kubernetes.io/component: holepunch-xds
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.holepunch.service.type }}
+  ports:
+    - port: {{ .Values.holepunch.service.xds.port }}
+      targetPort: {{ .Values.holepunch.service.xds.port }}
+      protocol: TCP
+      name: {{ .Values.holepunch.service.xds.name }}
+  selector:
+    app.kubernetes.io/component: holepunch-xds
+    {{- include "holepunch.selectorLabels" . | nindent 4 }}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "holepunch.fullname" . }}-admin
+  labels:
+    app.kubernetes.io/component: holepunch-admin
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.holepunch.service.type }}
+  ports:
+    - port: {{ .Values.holepunch.service.admin.port }}
+      targetPort: {{ .Values.holepunch.service.admin.port }}
+      protocol: TCP
+      name: {{ .Values.holepunch.service.admin.name }}
+  selector:
+    app.kubernetes.io/component: holepunch-admin
+    {{- include "holepunch.selectorLabels" . | nindent 4 }}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "holepunch.fullname" . }}-auth
+  labels:
+    app.kubernetes.io/component: holepunch-auth
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.holepunch.service.type }}
+  ports:
+    - port: {{ .Values.holepunch.service.auth.port }}
+      targetPort: {{ .Values.holepunch.service.auth.port }}
+      protocol: TCP
+      name: {{ .Values.holepunch.service.auth.name }}
+  selector:
+    app.kubernetes.io/component: holepunch-auth
+    {{- include "holepunch.selectorLabels" . | nindent 4 }}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "holepunch.fullname" . }}-envoy
+  labels:
+    app.kubernetes.io/component: envoy
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.envoy.service.type }}
+  ports:
+    - port: {{ .Values.envoy.service.gateway.port }}
+      targetPort: {{ .Values.envoy.service.gateway.port }}
+      protocol: TCP
+      name: {{ .Values.envoy.service.gateway.name }}
+    - port: {{ .Values.envoy.service.admin.port }}
+      targetPort: {{ .Values.envoy.service.admin.port }}
+      protocol: TCP
+      name: {{ .Values.envoy.service.admin.name }}
+  selector:
+    app.kubernetes.io/component: envoy
+    {{- include "holepunch.selectorLabels" . | nindent 4 }}

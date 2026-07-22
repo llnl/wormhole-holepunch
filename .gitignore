@@ -1,0 +1,33 @@
+###########################
+# Build/test files
+###########################
+.dev/
+binaries/
+bom.json
+build/dev/nats-data/
+build/dev/redis-data/
+certs/
+cover.out
+*.pprof
+
+###########################
+# Spack
+###########################
+.spack-env/
+spack.lock
+
+###########################
+# Coding agents
+###########################
+.claude/
+.gemini/
+.codex/
+
+###########################
+# Python
+###########################
+.venv/
+venv/
+*/venv/
+__pycache__/
+*/__pycache__/

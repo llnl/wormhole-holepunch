@@ -1,0 +1,28 @@
+{{- if .Values.jaegerAllInOne.enabled }}
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ include "holepunch.fullname" . }}-jaeger
+  labels:
+    app.kubernetes.io/component: jaeger
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: frontend
+      protocol: TCP
+      port: 16686
+      targetPort: 16686
+    - name: otlp
+      protocol: TCP
+      port: 4317
+      targetPort: 4317
+    - name: zipkin
+      protocol: TCP
+      port: 9411
+      targetPort: 9411
+  internalTrafficPolicy: Cluster
+  selector:
+    app.kubernetes.io/component: jaeger
+    {{- include "holepunch.labels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,230 @@
+version: '3'
+
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:latest
+    volumes:
+      - ./dex.yaml:/etc/dex/config.yaml
+    command:
+      - dex
+      - serve
+      - /etc/dex/config.yaml
+    ports:
+      - 5556:5556
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5556/healthz"]
+      interval: 5s
+      timeout: 2s
+      retries: 30
+    networks:
+      dev-network:
+        aliases:
+          - dex.holepunch.localwormhole
+          - dex
+
+  envoy:
+    image: docker.io/envoyproxy/envoy:distroless-v1.38.3
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+    ports:
+      - 3128:3128 # Proxy traffic
+      - 9901:9901 # Admin api
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
+    networks:
+      dev-network:
+        aliases:
+          - envoy.holepunch.localwormhole
+          - envoy
+
+  holepunch-admin:
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    depends_on:
+      mock-api:
+        condition: service_healthy
+    env_file:
+      - holepunch.env
+    environment:
+      - HOLEPUNCH_OTEL_ENDPOINT=jaeger:4317
+    command:
+      - /binaries/holepunch-dev
+      - admin
+    ports:
+      - 8082:8082
+    volumes:
+      - ../../binaries:/binaries
+    networks:
+      - dev-network
+
+  holepunch-auth:
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    depends_on:
+      mock-api:
+        condition: service_healthy
+    env_file:
+      - holepunch.env
+    environment:
+      - HOLEPUNCH_LOGGING_LEVEL=debug
+      - HOLEPUNCH_OTEL_ENDPOINT=jaeger:4317
+      # Header debug logging can be enabled to further assist in
+      # development/debugging of the auth service and the context
+      # being provided.
+      # - HOLEPUNCH_TOKEN_HEADER_DEBUG=true
+    command:
+      - /binaries/holepunch-dev
+      - auth
+    ports:
+      - 8081:8081
+    volumes:
+      - ../../binaries:/binaries
+    networks:
+      - dev-network
+
+  holepunch-cacher:
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    depends_on:
+      mock-api:
+        condition: service_healthy
+    env_file:
+      - holepunch.env
+    environment:
+      - HOLEPUNCH_LOGGING_LEVEL=debug
+      - HOLEPUNCH_OTEL_ENDPOINT=jaeger:4317
+    command:
+      - /binaries/holepunch-dev
+      - cacher
+    volumes:
+      - ../../binaries:/binaries
+    networks:
+      - dev-network
+
+  holepunch-xds:
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    depends_on:
+      mock-api:
+        condition: service_healthy
+    env_file:
+      - holepunch.env
+    environment:
+      - HOLEPUNCH_COLLECTOR_ENABLED=true
+    command:
+      - /binaries/holepunch-dev
+      - xds
+    volumes:
+      - ../../binaries:/binaries
+    networks:
+      - dev-network
+
+  jaeger:
+    image: docker.io/jaegertracing/all-in-one:1.73.0
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    command: ["--log-level=warn"]
+    ports:
+      - 16686:16686  # UI
+      - 9411:9411    # Zipkin
+      - 4317:4317    # Collector
+    networks:
+      - dev-network
+
+  mock-api:
+    image: docker.io/library/python:3.14
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        python -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+        /api/venv/bin/python mock-api.py
+    volumes:
+      - ../../tools/mock-api:/api
+    working_dir: /api
+    ports:
+      - 9001:9001 # Mock Wormhole api
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:9001/_health').read()"
+        ]
+      interval: 20s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - dev-network
+
+  mock-socket:
+    image: docker.io/library/python:3.14
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        python -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+        /server/venv/bin/python websocket_server.py
+    volumes:
+      - ../../tools/socket-server:/server
+    working_dir: /server
+    ports:
+      - 9002:9002 # Mock web socket
+    networks:
+      - dev-network
+
+  nats:
+    image: docker.io/library/nats:2.12.4
+    command: [
+      "--jetstream",
+      "--store_dir", "/data",
+    ]
+    volumes:
+      - ./nats-data:/data
+    networks:
+      - dev-network
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.7.1
+    environment:
+      OAUTH2_PROXY_LOG_LEVEL: debug
+      OAUTH2_PROXY_STANDARD_LOGGING: "true"
+      OAUTH2_PROXY_AUTH_LOGGING: "true"
+      OAUTH2_PROXY_REQUEST_LOGGING: "true"
+    depends_on:
+      dex:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command:
+      - --config=/etc/oauth2-proxy/oauth2-proxy.cfg
+    volumes:
+      - ./oauth2-proxy.cfg:/etc/oauth2-proxy/oauth2-proxy.cfg:ro
+    ports:
+      - 4180:4180
+    networks:
+      dev-network:
+        aliases:
+          - oauth.holepunch.localwormhole
+          - oauth2-proxy
+
+  redis:
+    image: docker.io/library/redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks:
+      - dev-network
+
+networks:
+  dev-network:
+    driver: bridge

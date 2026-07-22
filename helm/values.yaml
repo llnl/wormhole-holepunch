@@ -1,0 +1,297 @@
+#
+# Envoy web proxy deployment.
+envoy:
+  image:
+    repository: docker.io/envoyproxy/envoy
+    tag: distroless-v1.38.3
+    # Image pull policy (Always, IfNotPresent, Never)
+    pullPolicy: IfNotPresent
+
+  # Level (debug, info, warn, error)
+  logLevel: info
+
+  # Enable OTEL collection using the target endpoint.
+  otel:
+    address: ""
+    port: 4317
+    # Required for gRPC/HTTP2 endpoint.
+    gRPC: true
+
+  # Defines the HorizontalPodAutoscaler for the Envoy proxy.
+  scaler:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    resourceName: memory
+    averageUtilization: 50
+
+  env: {}
+    # HOLEPUNCH_LOGGING_LEVEL: info
+
+  resources:
+    limits:
+      cpu: '1'
+      memory: 1000Mi
+    requests:
+      cpu: 400m
+      memory: 500Mi
+
+  node:
+    cluster: wormhole-cluster
+    id: wormhole-node
+
+  service:
+    # Type of Kubernetes service (ClusterIP, NodePort, LoadBalancer)
+    type: ClusterIP
+    
+    gateway:
+      port: 3128
+      name: gateway
+    admin:
+      port: 9901
+      name: admin
+
+
+#
+# Deployment covering all Holepunch components.
+holepunch:
+  image:
+    repository: ghcr.io/llnl/wormhole-holepunch
+    tag: stable
+    # When provided will be used instead of the tag.
+    # digest: sha256:37a1f3ad9aedcae200a8f95a6f9132ce1a0e1ea37f01041d925bb8188efa01f9
+    # Image pull policy (Always, IfNotPresent, Never)
+    pullPolicy: IfNotPresent
+
+  # Generate associated wildcard routes that target the Holepunch gateway
+  wildcardHosts: {}
+    # apps: wildcard.example.com
+
+  # The static configuration offers a mechanism to inject route registry valid
+  # configurations manually without registering them. Example:
+  #  sources: [
+  #    {
+  #      id: "cc2bef1a-1757-42b9-adba-86338cb186e8",
+  #      dst: "http://holepunch-pre-whoami.namespace.cluster.local:2001",
+  #      src: "https://whoami.eample.com",
+  #      rules: { "allowed": { groups: ["test-grp"] } }
+  #    }
+  #  ]
+  staticConfig: {}
+
+  # Enable OTEL collection using the target endpoint.
+  otel:
+    address: ""
+    port: 4317
+
+  # Secret mounted with envFrom into all Holepunch deployments, this should
+  # included any HOLEPUNCH_* vars that required for startup. Review
+  # 'holepunch --help' for specific details.
+  secretEnv: holepunch-secrets
+
+  # Defines the HorizontalPodAutoscaler for the holepunch-auth service.
+  authScaler:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 3
+    resourceName: memory
+    averageUtilization: 50
+
+  # Enables support for websockets in the xds and auth deployments.
+  websocket:
+    enabled: false
+    # Maximum duration for any stream established through the proxy.
+    # maxStreamDuration: 12h
+
+  # The cacher CronJob aims to maintain a hot cache of crucial
+  # data (tokens + routes) aiming to improve gateway performance.
+  cacher:
+    # CronTab indicating how often the job should run.
+    schedule: '*/2 * * * *'
+
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  service:
+    # Type of Kubernetes service (ClusterIP, NodePort, LoadBalancer)
+    type: ClusterIP
+    
+    xds:
+      port: 8080
+      name: xds
+    auth:
+      port: 8081
+      name: auth
+    admin:
+      port: 8082
+      name: admin
+
+  env: {}
+    # HOLEPUNCH_LOGGING_LEVEL: info
+
+  resources:
+    limits:
+      cpu: 400m
+      memory: 512Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 3
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 5
+
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 2
+
+
+#
+# NATS
+# https://github.com/nats-io/k8s/tree/main/helm/charts/nats#nats-server
+nats:
+  # global:
+  #  image:
+  #    registry: internal-repo.example.com
+  
+  config:
+    merge:
+      authorization:
+        users:
+          # Primary account used by all core Holepunch services. We could
+          # experiment with permissions once everything is running to offer
+          # several focused service accounts...
+          - user: << $NATS_USER >>
+            pass: << $NATS_PASSWORD >>
+            permissions:
+              publish:
+                - ">"
+              subscribe:
+                - ">"
+          # Potential token subscriber, will need to test permissions.
+          #- user: << $AUTH_SUB_USER >>
+          #  pass: << $AUTH_SUB_PASSWORD >>
+          #  permissions:
+          #    subscribe:
+          #      - "holepunch.*"
+
+      max_payload: << 8MB >>
+
+    cluster:
+      enabled: true
+      replicas: 3
+
+    jetstream:
+      enabled: true
+
+      fileStore:
+        enabled: true
+        dir: /data
+        pvc:
+          enabled: true
+          size: 1Gi
+          storageClassName: nfs
+
+      memoryStore:
+        enabled: true
+        maxSize: 1Gi
+
+  # Prevents voluntary disruptions (drains/updates) from evicting too
+  # many NATS pods at once.
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+
+  container:
+    env:
+      # Provider username/password for the required nats users:
+      #   kubectl create secret generic nats-auth \
+      #     --from-literal=username=nats_user \
+      #     --from-literal=password=nats_password
+      NATS_USER:
+        valueFrom:
+          secretKeyRef:
+            name: nats-auth
+            key: username
+      NATS_PASSWORD:
+        valueFrom:
+          secretKeyRef:
+            name: nats-auth
+            key: password
+
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+
+  natsBox:
+    enabled: false
+
+
+#
+# A convince deployment of Jaeger to assist in testing and analysis where
+# reliability and data preservation are not vital. It is advised you deploy/integrate
+# your own OTEL collector for production deployments.
+jaegerAllInOne:
+  enabled: false
+
+  image:
+    repository: docker.io/jaegertracing/all-in-one
+    tag: 1.73.0
+    pullPolicy: IfNotPresent
+
+  resources:
+    limits:
+      cpu: 400m
+      memory: 2000Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+
+#
+# The security context is applied to all deployments part of Holepunch.
+securityContext:
+  runAsUser: 1000
+  runAsGroup: 0
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  allowPrivilegeEscalation: false
+
+#
+# NetworkPolicies are advised for production deployments and for some deployments may be required,
+# depending on the default policies enforced by policy.
+networkPolicies:
+  enabled: false
+  denyAllIngress: true
+  admin:
+    allowedNamespaces: []
+  metrics:
+    allowedNamespaces: []
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+# Node selector for pod assignment
+nodeSelector: {}
+
+# Affinity rules for pod scheduling
+affinity: {}
+
+fullnameOverride: ""
+nameOverride: ""

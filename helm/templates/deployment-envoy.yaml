@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "holepunch.fullname" . }}-envoy
+  labels:
+    app.kubernetes.io/component: envoy
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: envoy
+      {{- include "holepunch.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: envoy
+        {{- include "holepunch.selectorLabels" . | nindent 8 }}
+
+    spec:
+      serviceAccountName: {{ include "holepunch.serviceAccountName" . }}
+      volumes:
+        - name: cfg
+          configMap:
+            name: {{ include "holepunch.fullname" . }}-envoy
+            defaultMode: 0555
+
+      containers:
+        - name: envoy
+          image: {{ .Values.envoy.image.repository }}:{{ .Values.envoy.image.tag }}
+          imagePullPolicy: {{ .Values.envoy.image.pullPolicy }}
+          ports:
+            - name: {{ .Values.envoy.service.gateway.name }}
+              containerPort: {{ .Values.envoy.service.gateway.port }}
+            - name: {{ .Values.envoy.service.admin.name }}
+              containerPort: {{ .Values.envoy.service.admin.port }}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: {{ .Values.envoy.service.admin.port }}
+              scheme: HTTP
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /server_info
+              port: {{ .Values.envoy.service.admin.port }}
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          env:
+            {{- range $key, $val := .Values.envoy.env }}
+            - name: {{ $key }}
+              value: "{{ $val }}"
+            {{- end }}
+          volumeMounts:
+            - name: cfg
+              mountPath: /etc/envoy/envoy.yaml
+              subPath: envoy.yaml
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.envoy.resources | nindent 12 }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

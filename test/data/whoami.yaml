@@ -1,0 +1,22 @@
+sources:
+- dst: http://holepunch-whoami.namespace.svc.cluster.local:2001
+  id: cc2bef1a-1757-42b9-adba-86338cb186e8
+  rules:
+    allowed:
+      groups:
+      - test-grp
+  src: https://whoami.example.com
+- dst: http://holepunch-whoami.namespace.svc.cluster.local:2001
+  id: fccb9f16-2fa7-4cb5-87c2-dd72d1c485f7
+  rules:
+    allowed:
+      groups:
+      - test-grp
+  src: https://whoami.example.com/foo
+- dst: http://holepunch-whoami.namespace.svc.cluster.local:2001/wormhole/bar
+  id: 96c1d67b-56f9-4169-8a19-ba0aba8b81e9
+  rules:
+    allowed:
+      groups:
+      - test-grp
+  src: https://whoami.example.com/wormhole/bar

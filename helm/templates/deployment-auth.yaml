@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "holepunch.fullname" . }}-auth
+  labels:
+    app.kubernetes.io/component: holepunch-auth
+    {{- include "holepunch.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: holepunch-auth
+      {{- include "holepunch.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: holepunch-auth
+        {{- include "holepunch.selectorLabels" . | nindent 8 }}
+
+    spec:
+      serviceAccountName: {{ include "holepunch.serviceAccountName" . }}
+      volumes:
+        {{- if .Values.holepunch.staticConfig }}
+        - name: static-cfg
+          configMap:
+            name: {{ include "holepunch.fullname" . }}-static-cfg
+            defaultMode: 0555
+        {{- end }}
+
+      containers:
+        - name: holepunch
+          image: {{ include "holepunchImage.fullname" . }}
+          imagePullPolicy: {{ .Values.holepunch.image.pullPolicy }}
+          args: ["auth"]
+          ports:
+            - name: {{ .Values.holepunch.service.auth.name }}
+              containerPort: {{ .Values.holepunch.service.auth.port }}
+          {{- if .Values.holepunch.readinessProbe.enabled }}
+          readinessProbe:
+            grpc:
+              port: {{ .Values.holepunch.service.auth.port }}
+              service: ""
+            initialDelaySeconds: {{ .Values.holepunch.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.holepunch.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.holepunch.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.holepunch.readinessProbe.failureThreshold }}
+          {{- end }}
+          {{- if .Values.holepunch.livenessProbe.enabled }}
+          livenessProbe:
+            grpc:
+              port: {{ .Values.holepunch.service.auth.port }}
+              service: ""
+            initialDelaySeconds: {{ .Values.holepunch.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.holepunch.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.holepunch.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.holepunch.livenessProbe.failureThreshold }}
+          {{- end }}
+          env:
+            - name: HOLEPUNCH_LOGGING_LEVEL
+              value: {{ .Values.holepunch.logLevel }}
+            {{- range $key, $val := .Values.holepunch.env }}
+            - name: {{ $key }}
+              value: "{{ $val }}"
+            {{- end }}
+            {{- if .Values.holepunch.staticConfig }}
+            - name: HOLEPUNCH_STATIC_CONFIG
+              value: /opt/holepunch/static.yaml
+            {{- end }}
+            {{- if .Values.holepunch.websocket.enabled }}
+            - name: HOLEPUNCH_ENABLE_WEBSOCKET
+              value: 'true'
+            {{- end }}
+            {{- if .Values.holepunch.otel.address }}
+            - name: HOLEPUNCH_OTEL_ENDPOINT
+              value: {{ .Values.holepunch.otel.address }}:{{ .Values.holepunch.otel.port }}
+            {{- else if .Values.jaegerAllInOne.enabled }}
+            - name: HOLEPUNCH_OTEL_ENDPOINT
+              value: {{ include "holepunch.fullname" . }}-jaeger.{{ .Release.Namespace }}.svc.cluster.local:4317
+            {{- end }}
+            {{- if .Values.nats.config.cluster.enabled }}
+            - name: HOLEPUNCH_NATS_REPLICAS
+              value: {{ .Values.nats.config.cluster.replicas | quote }}
+            {{- end }}
+          envFrom:
+            {{- if .Values.holepunch.secretEnv }}
+            - secretRef:
+                name: {{ .Values.holepunch.secretEnv }}
+            {{- end }}    
+          volumeMounts:
+            {{- if .Values.holepunch.staticConfig }}
+            - name: static-cfg
+              mountPath: /opt/holepunch/static.yaml
+              subPath: static.yaml
+            {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.holepunch.resources | nindent 12 }}
+
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

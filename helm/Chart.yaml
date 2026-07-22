@@ -1,0 +1,12 @@
+apiVersion: v2
+name: holepunch
+description: Primary Wormhole gateway to manage a dynamic range of proxy target while enforcing facility requirements.
+type: application
+version: 0.1.0
+sources:
+  - https://github.com/llnl/wormhole-holepunch
+
+dependencies:
+  - name: nats
+    version: 2.12.4
+    repository: https://nats-io.github.io/k8s/helm/charts/

@@ -1,0 +1,17 @@
+sources: [
+  {
+    id: "4ff69450-30eb-489b-bb90-15f25cd88c7d",
+    dst: "https://foo.example.com",
+    src: "https://overwrite.example.com"
+  }, {
+    id: "43208434-df8d-4111-92ea-b29843e3f006",
+    dst: "http://static.namespace.svc.cluster.local",
+    src: "https://static.example.com",
+    rules: {
+      "allowed": {
+        users: [user1, user2],
+        groups: [group1]
+      },
+    }
+  }
+]
