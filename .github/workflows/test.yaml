@@ -1,0 +1,31 @@
+name: Test
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # https://github.com/actions/checkout/releases/tag/v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Extract Go version from spack.yaml
+        id: go-version
+        run: |
+          GO_VERSION=$(grep -oP 'go@\K[0-9.]+' spack.yaml | head -1)
+          echo "version=${GO_VERSION}" >> "$GITHUB_OUTPUT"
+
+      # https://github.com/actions/setup-go/releases/tag/v7.0.0
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: ${{ steps.go-version.outputs.version }}
+
+      - name: Run tests
+        run: make test

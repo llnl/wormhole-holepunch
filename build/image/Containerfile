@@ -1,28 +1,18 @@
 ARG GO_VERSION
-FROM docker.io/library/golang:${GO_VERSION} as build
+FROM docker.io/library/golang:${GO_VERSION} AS build
 
-COPY certs/ /usr/local/share/ca-certificates
-COPY  . /holepunch
 WORKDIR /holepunch
+COPY  . .
 
-# Limit to avoid resource issues when building on OpenShift.
+# Limit to avoid resource issues when building.
 ARG GOMAXPROCS=4
 ARG VERSION
 
 RUN make build && \
     ./binaries/holepunch --version
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.6
+FROM gcr.io/distroless/static-debian13:latest-amd64
 
-COPY certs/ /etc/pki/ca-trust/source/anchors/
+COPY --from=build /holepunch/binaries/holepunch /holepunch
 
-RUN update-ca-trust \
-    && microdnf update -y \
-    && microdnf install -y \
-        hostname \
-        tzdata \
-    && microdnf clean all
-
-COPY --from=build /holepunch/binaries/holepunch /usr/local/bin/holepunch
-
-ENTRYPOINT ["/usr/local/bin/holepunch"]
+ENTRYPOINT ["/holepunch"]

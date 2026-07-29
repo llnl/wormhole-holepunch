@@ -68,6 +68,11 @@ version:
 mocks:
 	@bash ./test/scripts/mocks.bash
 
+.PHONY: install-hooks #M Configure Git to use the versioned hooks in test/hooks/.
+install-hooks:
+	git config core.hooksPath test/hooks
+	@printf "${GREEN}Git hooks installed. Pre-push checks (make test, make test-quality) are now enforced.${RESET}\n"
+
 .PHONY: help
 help:
 	@printf "${GREEN}Usage: make [target] ...${RESET}\n\n"
