@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# pre-push hook: runs the test suite and quality checks before allowing a push.
+# Install via: make install-hooks
+
+set -euo pipefail
+
+ROOT_DIR="$(git rev-parse --show-toplevel)"
+cd "$ROOT_DIR"
+
+echo "==> Running test suite (make test)..."
+if ! make test; then
+    echo "ERROR: 'make test' failed. Push aborted." >&2
+    exit 1
+fi
+
+echo "==> Running quality checks (make test-quality)..."
+if ! make test-quality; then
+    echo "ERROR: 'make test-quality' failed. Push aborted." >&2
+    exit 1
+fi
+
+echo "==> All checks passed."

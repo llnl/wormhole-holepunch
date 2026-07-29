@@ -99,7 +99,12 @@ dependencies for your local development environment in conjunction with
 ```shell
 direnv allow
 spack install
+make install-hooks
 ```
+
+`make install-hooks` only needs to be run once per clone. It configures Git to
+use the versioned hooks in `test/hooks/`, which enforces `make test` and
+`make test-quality` before every push. It can be bypassed with `git push --no-verify`.
 
 If this is not possible
 please refer to the `spack.yaml` file to identify all software requirements
