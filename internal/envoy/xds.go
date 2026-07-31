@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	mutation_rules "github.com/envoyproxy/go-control-plane/envoy/config/common/mutation_rules/v3"
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	discoverygrpc "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	endpointservice "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
@@ -20,6 +21,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 )
@@ -29,12 +31,18 @@ var (
 )
 
 type xdsServer struct {
-	cache        cache.SnapshotCache
-	ll           logs.Logger
-	routeReg     registry.Router
-	tokenSvcArgs args.TokenService
-	xds          srv.Server
-	xdsArgs      args.XDS
+	cache cache.SnapshotCache
+	// defaultHeaders establishes default/static header behavior that applies to the start of
+	// all requests. The primary goal is to remove headers that we will rely upon at future stages
+	// regardless if they will be injected later or not. In the majority of cases we ensure the
+	// 'set' overwrites any potential user value, but in the interest of caution we will make
+	// sure these occur first on headers identified as critical.
+	defaultRequestHeaders []*mutation_rules.HeaderMutation
+	ll                    logs.Logger
+	routeReg              registry.Router
+	tokenSvcArgs          args.TokenService
+	xds                   srv.Server
+	xdsArgs               args.XDS
 }
 
 func RunServer(
@@ -57,12 +65,13 @@ func RunServer(
 	grpcServer := newGrpcServer(ll, webArgs)
 
 	s := &xdsServer{
-		cache:        cache,
-		ll:           ll,
-		routeReg:     routeReg,
-		tokenSvcArgs: tokenSvcArgs,
-		xds:          srv.NewServer(ctx, cache, &test.Callbacks{}),
-		xdsArgs:      xdsArgs,
+		cache:                 cache,
+		defaultRequestHeaders: establishDefaultRequestHeaders(tokenSvcArgs),
+		ll:                    ll,
+		routeReg:              routeReg,
+		tokenSvcArgs:          tokenSvcArgs,
+		xds:                   srv.NewServer(ctx, cache, &test.Callbacks{}),
+		xdsArgs:               xdsArgs,
 	}
 
 	if err = s.initSnapshot(ctx); err != nil {
@@ -108,4 +117,26 @@ func (s *xdsServer) manageRefresh(ctx context.Context) {
 			s.refreshSnapshot(ctx)
 		}
 	}
+}
+
+//
+
+func establishDefaultRequestHeaders(tokenSvcArgs args.TokenService) []*mutation_rules.HeaderMutation {
+	mutations := []*mutation_rules.HeaderMutation{ //nolint:prealloc
+		{
+			Action: &mutation_rules.HeaderMutation_Remove{
+				Remove: tokenSvcArgs.SubtokenHeader,
+			},
+		},
+	}
+
+	for _, header := range keys.DefaultRemovableHeaders() {
+		mutations = append(mutations, &mutation_rules.HeaderMutation{
+			Action: &mutation_rules.HeaderMutation_Remove{
+				Remove: header,
+			},
+		})
+	}
+
+	return mutations
 }

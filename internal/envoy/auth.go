@@ -71,26 +71,26 @@ func StartEnvoyAuth(
 //
 
 func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.CheckResponse, error) {
-	ctx, reqLog, endSpan := s.authLogger(ctx, req)
+	// Details on the available attributes established by Envoy can be found:
+	// https://www.envoyproxy.io/docs/envoy/v1.38.3/intro/arch_overview/advanced/attributes.html
+	// Host and Scheme are sourced from context_extensions, which are bound to the matched
+	// route config by Envoy at routing time and cannot be influenced by client-supplied headers.
+	http := req.GetAttributes().GetRequest().GetHttp()
+	ctxExt := req.GetAttributes().GetContextExtensions()
+
+	details := requests.RequestDetails{
+		Headers:     http.GetHeaders(),
+		CommunityID: ctxExt[keys.CommunityHeader],
+		RouteID:     ctxExt[keys.PikoHeader],
+		Host:        ctxExt[keys.WormholeHostHeader],
+		Scheme:      ctxExt[keys.WormholeSchemeHeader],
+		Path:        http.GetPath(),
+	}
+
+	ctx, reqLog, endSpan := s.authLogger(ctx, details, req)
 	defer endSpan()
 
 	s.headerDebug(ctx, req, reqLog)
-
-	// Details on the available attributes established by Envoy can be found:
-	// https://www.envoyproxy.io/docs/envoy/v1.38.3/intro/arch_overview/advanced/attributes.html
-	// Though most of the required details are present, we will need to take a closer
-	// look at best process to identify the request host/authority in a way that is
-	// free of potential user/upstream influence (methods used with Istio may not work
-	// the same in this instance). In the mean time we can rely on the x-wormhole-*
-	// headers that have been established by pre-configured filters.
-	http := req.GetAttributes().GetRequest().GetHttp()
-
-	details := requests.RequestDetails{
-		Headers: http.GetHeaders(),
-		Host:    http.GetHeaders()[keys.WormholeHostHeader],
-		Scheme:  http.GetHeaders()[keys.WormholeSchemeHeader],
-		Path:    http.GetPath(),
-	}
 
 	tknCtx, authResp, sErr := s.tokenAuth.RequestHeader(ctx, reqLog, details)
 	if sErr != nil {
@@ -126,6 +126,8 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 		authResp.SetHeaders[s.tokenSvcArgs.SubtokenHeader] = subtoken
 	}
 
+	authResp.SetHeaders[keys.PikoHeader] = ctxExt[keys.PikoHeader]
+
 	return s.allowRequest(ctx, authResp, reqLog), nil
 }
 
@@ -133,17 +135,18 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 
 func (s *authServer) authLogger(
 	ctx context.Context,
+	details requests.RequestDetails,
 	req *auth.CheckRequest,
 ) (context.Context, logs.Logger, func()) {
 	http := req.GetAttributes().GetRequest().GetHttp()
 
 	ll := s.ll.With(
 		[]slog.Attr{
-			slog.String(keys.PikoHeader, http.GetHeaders()[keys.PikoHeader]),
+			slog.String(keys.PikoHeader, details.RouteID),
 			slog.String("guid:"+keys.RequestIDHeader, http.GetHeaders()[keys.RequestIDHeader]),
 			slog.String("auth.method", http.GetMethod()),
 			slog.String("auth.path", http.GetPath()),
-			slog.String("auth.host", http.GetHost()),
+			slog.String("auth.host", details.Host),
 		},
 	)
 

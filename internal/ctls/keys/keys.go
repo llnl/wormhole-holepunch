@@ -28,6 +28,20 @@ const (
 	WormholeSchemeHeader         = "x-wormhole-scheme"
 )
 
+// DefaultRemovableHeaders returns a list of headers that are considered removable from
+// a user request by default. These headers are typically used for internal purposes and
+// may not be relevant for all external clients.
+func DefaultRemovableHeaders() []string {
+	return []string{
+		CommunityHeader,
+		Oauth2ProxyAccessTokenHeader,
+		PikoHeader,
+		VersionHeader,
+		WormholeHostHeader,
+		WormholeSchemeHeader,
+	}
+}
+
 // WormholeAccessToken generates the key for use in caching.
 func WormholeAccessToken(tokenID string) string {
 	return "wat.v1." + base64.RawURLEncoding.EncodeToString([]byte(tokenID))

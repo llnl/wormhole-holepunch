@@ -240,7 +240,7 @@ func (i *internal) authorizeProxyCtls(
 }
 
 func (i *internal) identifyID(req requests.RequestDetails) (string, *errs.StatusError) {
-	id := req.Headers[keys.PikoHeader]
+	id := req.RouteID
 	if err := i.vv.Var(id, "omitempty,uuid"); err != nil {
 		return "", err
 	}
@@ -275,12 +275,10 @@ func (i *internal) updateCtls(sources []RawSource) {
 		proxyCtls[rs.ID] = ProxyControls{
 			Source:      rs.Source,
 			Destination: rs.Destination,
-			RequestHeaders: map[string]string{
-				keys.PikoHeader:           rs.ID,
-				keys.CommunityHeader:      rs.CommunityID,
-				keys.WormholeHostHeader:   rs.Source.URL.Host,
-				keys.WormholeSchemeHeader: rs.Source.URL.Scheme,
-			},
+			// Currently there are no additional headers that are required to be
+			// set for the proxy driven by the route configuration.
+			RequestHeaders: map[string]string{},
+			CommunityID:    rs.CommunityID,
 		}
 	}
 

@@ -26,6 +26,8 @@ type ProxyControls struct {
 	// PrefixRewrite indicates that the matched prefix should (from the source)
 	// will be swapped for this value.
 	PrefixRewrite string
+	// CommunityID is the unique identifier for the community associated with the route.
+	CommunityID string
 }
 
 type Router interface {

@@ -27,3 +27,11 @@ func Test_Keys(t *testing.T) {
 		assert.NotEmpty(t, got)
 	})
 }
+
+func Test_DefaultRemovableHeaders(t *testing.T) {
+	t.Run("DefaultRemovableHeaders", func(t *testing.T) {
+		got := DefaultRemovableHeaders()
+
+		assert.GreaterOrEqual(t, len(got), 6)
+	})
+}

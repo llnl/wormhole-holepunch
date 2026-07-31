@@ -68,7 +68,7 @@ services:
       # Header debug logging can be enabled to further assist in
       # development/debugging of the auth service and the context
       # being provided.
-      # - HOLEPUNCH_TOKEN_HEADER_DEBUG=true
+      - HOLEPUNCH_TOKEN_HEADER_DEBUG=true
     command:
       - /binaries/holepunch-dev
       - auth
