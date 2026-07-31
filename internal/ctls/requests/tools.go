@@ -14,9 +14,14 @@ import (
 // translations. All values should be derived from the proxy supplied
 // details. Note that we do not validate the potential user defined values.
 type RequestDetails struct {
-	// Headers maps all user defined key/value header that have been supplied to the
-	// service (e.g., ext_authz may only receives a static subset of available headers).
+	// Headers maps a subset of user defined key/value header that have been supplied
+	// to the auth service, any header should be validated by the service prior to use.
 	Headers map[string]string
+	// RouteID is the identifier of the matched route. This should be derived from a
+	// trusted value, for example the managed ext_authz context_extensions.
+	RouteID string
+	// CommunityID is the unique identifier for the community associated with the route.
+	CommunityID string
 	// Host for the inbound request used for routing/auth decisions. This should be
 	// derived from a trusted value, for example the managed x-wormhole-host header.
 	Host string

@@ -108,7 +108,7 @@ func (s *xdsServer) makeRoutes(
 ) *route.RouteConfiguration {
 	vhMappings := make(map[string]*route.VirtualHost, 0)
 
-	for _, v := range ctls {
+	for routeID, v := range ctls {
 		domainName := domain(v.Source.URL)
 
 		prefix := requests.NormalizePath(v.Source.URL)
@@ -117,8 +117,8 @@ func (s *xdsServer) makeRoutes(
 			clusterName(v.Destination.URL),
 			prefix,
 			v.PrefixRewrite,
-			v.RequestHeaders,
-			v.Destination.URL,
+			v,
+			routeID,
 		)
 
 		vh, found := vhMappings[domainName]
@@ -165,8 +165,8 @@ func (s *xdsServer) makeRoutes(
 // route rewrites the request path, modifies request headers, and applies filtering configurations.
 func (s *xdsServer) singleRoute(
 	clusterName, prefix, prefixRewrite string,
-	setHeaders map[string]string,
-	dst *url.URL,
+	ctl registry.ProxyControls,
+	routeID string,
 ) *route.Route {
 	ra := &route.Route_Route{
 		Route: &route.RouteAction{
@@ -174,7 +174,7 @@ func (s *xdsServer) singleRoute(
 				Cluster: clusterName,
 			},
 			HostRewriteSpecifier: &route.RouteAction_HostRewriteLiteral{
-				HostRewriteLiteral: dst.Host,
+				HostRewriteLiteral: ctl.Destination.URL.Host,
 			},
 			PrefixRewrite: prefixRewrite,
 			IdleTimeout:   durationpb.New(s.xdsArgs.IdleTimeout),
@@ -199,7 +199,8 @@ func (s *xdsServer) singleRoute(
 		},
 		Action: ra,
 		TypedPerFilterConfig: map[string]*anypb.Any{
-			headerMutationFilter: s.requestHeaderFilterCfg(setHeaders),
+			headerMutationFilter: s.requestHeaderFilterCfg(ctl.RequestHeaders),
+			authzFilter:          buildAuthzFilter(ctl, routeID),
 		},
 	}
 }
@@ -221,6 +222,28 @@ func virtualHostName(domainName string) string {
 	hash := sha256.Sum256([]byte(domainName))
 
 	return hex.EncodeToString(hash[:])
+}
+
+func buildAuthzFilter(ctl registry.ProxyControls, routeID string) *anypb.Any {
+	ctxExt := map[string]string{
+		keys.PikoHeader:           routeID,
+		keys.WormholeHostHeader:   ctl.Source.URL.Host,
+		keys.WormholeSchemeHeader: ctl.Source.URL.Scheme,
+	}
+
+	if ctl.CommunityID != "" {
+		ctxExt[keys.CommunityHeader] = ctl.CommunityID
+	}
+
+	return mustMarshalAny(&extauthz.ExtAuthzPerRoute{
+		// Bind host and scheme from the matched route config into context_extensions so
+		// ext_authz receives values that reflect actual routing, not client-supplied headers.
+		Override: &extauthz.ExtAuthzPerRoute_CheckSettings{
+			CheckSettings: &extauthz.CheckSettings{
+				ContextExtensions: ctxExt,
+			},
+		},
+	})
 }
 
 /*
@@ -366,10 +389,6 @@ func (s *xdsServer) authzFilterCfg() *anypb.Any {
 					},
 				}, {
 					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: keys.PikoHeader,
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
 						Exact: keys.RequestIDHeader,
 					},
 				}, {
@@ -392,14 +411,6 @@ func (s *xdsServer) authzFilterCfg() *anypb.Any {
 					MatchPattern: &matcher.StringMatcher_Exact{
 						Exact: keys.CommunityHeader,
 					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: keys.WormholeHostHeader,
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: keys.WormholeSchemeHeader,
-					},
 				},
 			},
 		},
@@ -414,7 +425,7 @@ func (s *xdsServer) authzFilterCfg() *anypb.Any {
 func (s *xdsServer) requestHeaderFilterCfg(set map[string]string) *anypb.Any {
 	headerMutationConfig := &header_mutation.HeaderMutationPerRoute{
 		Mutations: &header_mutation.Mutations{
-			RequestMutations: s.defaultRequestHeaders(),
+			RequestMutations: s.defaultRequestHeaders,
 		},
 	}
 
@@ -456,37 +467,6 @@ func (s *xdsServer) makeTracingCfg() *hcm.HttpConnectionManager_Tracing {
 			Name: "envoy.tracers.opentelemetry",
 			ConfigType: &trace.Tracing_Http_TypedConfig{
 				TypedConfig: mustMarshalAny(otelCfg),
-			},
-		},
-	}
-}
-
-// defaultHeaders establishes default/static header behavior that applies to the start of
-// all requests. The primary goal is to remove headers that we will rely upon at future stages
-// regardless if they will be injected later or not. In the majority of cases we ensure the
-// 'set' overwrites any potential user value, but in the interest of caution we will make
-// sure these occur first on headers identified as critical.
-func (s *xdsServer) defaultRequestHeaders() []*mutation_rules.HeaderMutation {
-	return []*mutation_rules.HeaderMutation{
-		{
-			Action: &mutation_rules.HeaderMutation_Remove{
-				Remove: keys.CommunityHeader,
-			},
-		}, {
-			Action: &mutation_rules.HeaderMutation_Remove{
-				Remove: s.tokenSvcArgs.SubtokenHeader,
-			},
-		}, {
-			Action: &mutation_rules.HeaderMutation_Remove{
-				Remove: keys.PikoHeader,
-			},
-		}, {
-			Action: &mutation_rules.HeaderMutation_Remove{
-				Remove: keys.WormholeHostHeader,
-			},
-		}, {
-			Action: &mutation_rules.HeaderMutation_Remove{
-				Remove: keys.WormholeSchemeHeader,
 			},
 		},
 	}

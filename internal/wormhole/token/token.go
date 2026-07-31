@@ -134,11 +134,7 @@ func (i internal) RequestHeader(
 	ll.InfoCtx(ctx, tknCtx.Payload.Username+" successfully authenticated")
 
 	return tknCtx, AuthResponse{
-		SetHeaders: map[string]string{
-			// The user's initial authentication token should always be overwritten
-			// with the new and more limited scoped JWT.
-			i.tokenSvcArgs.TokenHeader: jwt,
-		},
+		SetHeaders: i.setHeaders(jwt, req),
 		// We will need to expand this to remove the cookie as part of the
 		// oauth2 overhaul.
 		RemoveHeaders: []string{},
@@ -174,4 +170,21 @@ func (i internal) RemoveSubtoken(ctx context.Context, parentID, externalID, toke
 	} else {
 		i.ll.DebugCtx(ctx, "successfully removed subtoken from cache: "+key)
 	}
+}
+
+//
+
+func (i internal) setHeaders(jwt string, req requests.RequestDetails) map[string]string {
+	defaultHeaders := map[string]string{
+		// The user's initial authentication token should always be overwritten
+		// with the new and more limited scoped JWT.
+		i.tokenSvcArgs.TokenHeader: jwt,
+		keys.PikoHeader:            req.RouteID,
+	}
+
+	if req.CommunityID != "" {
+		defaultHeaders[keys.CommunityHeader] = req.CommunityID
+	}
+
+	return defaultHeaders
 }

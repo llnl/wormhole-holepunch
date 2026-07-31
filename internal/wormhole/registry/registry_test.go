@@ -15,7 +15,6 @@ import (
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
-	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
@@ -214,12 +213,9 @@ func Test_internal_AsyncFetchSources(t *testing.T) {
 		i.AsyncFetchSources()
 		time.Sleep(1 * time.Second)
 
-		reqHeaders := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"].RequestHeaders
-		assert.Len(t, reqHeaders, 4)
-		assert.Equal(t, "4f85939f-f19d-4217-afae-701568b12221", reqHeaders[keys.CommunityHeader])
-		assert.Equal(t, "3d6527b5-9013-4255-a7b0-fe02e57756dc", reqHeaders[keys.PikoHeader])
-		assert.Equal(t, "demo-src.example.com", reqHeaders[keys.WormholeHostHeader])
-		assert.Equal(t, "https", reqHeaders[keys.WormholeSchemeHeader])
+		ctls := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"]
+		assert.Len(t, ctls.RequestHeaders, 0)
+		assert.Equal(t, "4f85939f-f19d-4217-afae-701568b12221", ctls.CommunityID)
 	})
 
 	t.Run("bad response", func(t *testing.T) {
@@ -238,8 +234,9 @@ func Test_internal_AsyncFetchSources(t *testing.T) {
 		time.Sleep(1 * time.Second)
 
 		// No changes
-		reqHeaders := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"].RequestHeaders
-		assert.Len(t, reqHeaders, 4)
+		ctls := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"]
+		assert.Len(t, ctls.RequestHeaders, 0)
+		assert.Equal(t, "4f85939f-f19d-4217-afae-701568b12221", ctls.CommunityID)
 	})
 
 	t.Run("failed mappings", func(t *testing.T) {
@@ -253,8 +250,9 @@ func Test_internal_AsyncFetchSources(t *testing.T) {
 		time.Sleep(1 * time.Second)
 
 		// No changes
-		reqHeaders := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"].RequestHeaders
-		assert.Len(t, reqHeaders, 4)
+		ctls := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"]
+		assert.Len(t, ctls.RequestHeaders, 0)
+		assert.Equal(t, "4f85939f-f19d-4217-afae-701568b12221", ctls.CommunityID)
 	})
 }
 
@@ -272,12 +270,10 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 	}{
 		"correct subtoken": {
 			req: requests.RequestDetails{
-				Scheme: "https",
-				Path:   "",
-				Host:   "demo-src.example.com",
-				Headers: map[string]string{
-					keys.PikoHeader: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
-				},
+				Scheme:  "https",
+				Path:    "",
+				Host:    "demo-src.example.com",
+				RouteID: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
 			},
 			tknCtx: wormhole.TokenContext{
 				Payload: wormhole.TokenPayload{
@@ -292,12 +288,10 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 		},
 		"incorrect subtoken": {
 			req: requests.RequestDetails{
-				Scheme: "https",
-				Path:   "",
-				Host:   "demo-src.example.com",
-				Headers: map[string]string{
-					keys.PikoHeader: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
-				},
+				Scheme:  "https",
+				Path:    "",
+				Host:    "demo-src.example.com",
+				RouteID: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
 			},
 			tknCtx: wormhole.TokenContext{
 				Payload: wormhole.TokenPayload{
@@ -312,12 +306,10 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 		},
 		"allowed user": {
 			req: requests.RequestDetails{
-				Scheme: "https",
-				Path:   "",
-				Host:   "demo-src.example.com",
-				Headers: map[string]string{
-					keys.PikoHeader: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
-				},
+				Scheme:  "https",
+				Path:    "",
+				Host:    "demo-src.example.com",
+				RouteID: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
 			},
 			tknCtx: wormhole.TokenContext{
 				Payload: wormhole.TokenPayload{
@@ -342,12 +334,10 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 		},
 		"non-uuid header": {
 			req: requests.RequestDetails{
-				Scheme: "https",
-				Path:   "",
-				Host:   "wormhole.example.com",
-				Headers: map[string]string{
-					keys.PikoHeader: "$(example)",
-				},
+				Scheme:  "https",
+				Path:    "",
+				Host:    "wormhole.example.com",
+				RouteID: "$(example)",
 			},
 			assertErr: func(t *testing.T, sErr *errs.StatusError) {
 				assert.ErrorContains(t, sErr, "Bad Request")
@@ -355,12 +345,10 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 		},
 		"no matching": {
 			req: requests.RequestDetails{
-				Scheme: "https",
-				Path:   "",
-				Host:   "wormhole.example.com",
-				Headers: map[string]string{
-					keys.PikoHeader: uuid.Must(uuid.NewRandom()).String(),
-				},
+				Scheme:  "https",
+				Path:    "",
+				Host:    "wormhole.example.com",
+				RouteID: uuid.Must(uuid.NewRandom()).String(),
 			},
 			assertErr: func(t *testing.T, sErr *errs.StatusError) {
 				assert.ErrorContains(t, sErr, "no destination for")
@@ -368,12 +356,10 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 		},
 		"disallowed group": {
 			req: requests.RequestDetails{
-				Scheme: "https",
-				Path:   "",
-				Host:   "demo-src.example.com",
-				Headers: map[string]string{
-					keys.PikoHeader: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
-				},
+				Scheme:  "https",
+				Path:    "",
+				Host:    "demo-src.example.com",
+				RouteID: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
 			},
 			tknCtx: wormhole.TokenContext{
 				Payload: wormhole.TokenPayload{
@@ -387,12 +373,10 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 		},
 		"allowed group": {
 			req: requests.RequestDetails{
-				Scheme: "https",
-				Path:   "",
-				Host:   "demo-src.example.com",
-				Headers: map[string]string{
-					keys.PikoHeader: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
-				},
+				Scheme:  "https",
+				Path:    "",
+				Host:    "demo-src.example.com",
+				RouteID: "3d6527b5-9013-4255-a7b0-fe02e57756dc",
 			},
 			tknCtx: wormhole.TokenContext{
 				Payload: wormhole.TokenPayload{
@@ -406,12 +390,10 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 		},
 		"no matching user/group": {
 			req: requests.RequestDetails{
-				Scheme: "https",
-				Path:   "",
-				Host:   "example-pre.example.com",
-				Headers: map[string]string{
-					keys.PikoHeader: "0f66bdbe-3f7a-4db4-99ac-2cef8c2d637d",
-				},
+				Scheme:  "https",
+				Path:    "",
+				Host:    "example-pre.example.com",
+				RouteID: "0f66bdbe-3f7a-4db4-99ac-2cef8c2d637d",
 			},
 			tknCtx: wormhole.TokenContext{
 				Payload: wormhole.TokenPayload{
@@ -515,12 +497,8 @@ func Test_internal_PublishSources(t *testing.T) {
 
 		assert.Nil(t, err)
 
-		reqHeaders := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"].RequestHeaders
-		assert.Len(t, reqHeaders, 4)
-		assert.Equal(t, "4f85939f-f19d-4217-afae-701568b12221", reqHeaders[keys.CommunityHeader])
-		assert.Equal(t, "3d6527b5-9013-4255-a7b0-fe02e57756dc", reqHeaders[keys.PikoHeader])
-		assert.Equal(t, "demo-src.example.com", reqHeaders[keys.WormholeHostHeader])
-		assert.Equal(t, "https", reqHeaders[keys.WormholeSchemeHeader])
+		ctls := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"]
+		assert.Equal(t, "4f85939f-f19d-4217-afae-701568b12221", ctls.CommunityID)
 	})
 }
 

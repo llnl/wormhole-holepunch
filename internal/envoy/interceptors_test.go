@@ -17,6 +17,7 @@ import (
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 )
 
 func Test_unaryTracingInterceptor(t *testing.T) {
@@ -111,6 +112,9 @@ func Test_authLogger(t *testing.T) {
 		reqID := "rid-123"
 		req := &auth.CheckRequest{
 			Attributes: &auth.AttributeContext{
+				ContextExtensions: map[string]string{
+					keys.PikoHeader: "piko",
+				},
 				Request: &auth.AttributeContext_Request{
 					Http: &auth.AttributeContext_HttpRequest{
 						Method: "GET",
@@ -118,7 +122,6 @@ func Test_authLogger(t *testing.T) {
 						Host:   "example",
 						Headers: map[string]string{
 							keys.RequestIDHeader: reqID,
-							keys.PikoHeader:      "piko",
 						},
 					},
 				},
@@ -129,7 +132,9 @@ func Test_authLogger(t *testing.T) {
 			"x-request-id": {reqID},
 		})
 
-		ctx2, _, end := s.authLogger(ctx, req)
+		ctx2, _, end := s.authLogger(ctx, requests.RequestDetails{
+			RouteID: "piko",
+		}, req)
 
 		// It should return a context; and end func should end a span (so we see it recorded).
 		if ctx2 == nil {
