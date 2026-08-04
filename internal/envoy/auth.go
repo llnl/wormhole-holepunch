@@ -126,7 +126,11 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 		authResp.SetHeaders[s.tokenSvcArgs.SubtokenHeader] = subtoken
 	}
 
+	// Now that we've established the request is authorized, we can set the headers
+	// that can be used by the upstream services.
 	authResp.SetHeaders[keys.PikoHeader] = ctxExt[keys.PikoHeader]
+	authResp.SetHeaders[keys.WormholeHostHeader] = ctxExt[keys.WormholeHostHeader]
+	authResp.SetHeaders[keys.WormholeSchemeHeader] = ctxExt[keys.WormholeSchemeHeader]
 
 	return s.allowRequest(ctx, authResp, reqLog), nil
 }
