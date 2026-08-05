@@ -16,6 +16,7 @@ env:
 jobs:
   test:
     uses: ./.github/workflows/test.yaml
+    timeout-minutes: 3
     permissions:
       contents: read
 
@@ -23,6 +24,7 @@ jobs:
     name: Build and push
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 2
     permissions:
       contents: read
       packages: write
