@@ -34,6 +34,37 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 )
 
+// This file builds the four Envoy xDS resource types that make up a running proxy.
+// Envoy does not use a config file at runtime; instead it connects to this server over
+// gRPC and receives configuration snapshots. When a snapshot is pushed via
+// cache.SetSnapshot the proxy hot-reloads without restarting.
+//
+// The four resource types and how they relate:
+//
+//		Client → Listener → (filter chain) → Route → Cluster → Endpoint
+//
+//	  - Listener: binds a TCP address/port; the entry point for all inbound connections.
+//	    Contains a filter chain, here a single HTTP Connection Manager (HCM).
+//
+//	  - Filters: HTTP middleware inside the HCM, executed in order per request:
+//	    	1. header_mutation  strips/rewrites headers before auth sees them.
+//	    	2. ext_authz        calls the external gRPC auth service; blocks or allows.
+//	    	3. router           must be last; forwards the request to the matched cluster.
+//	    Per-route TypedPerFilterConfig overrides allow each route to bind its own
+//	    metadata (route ID, source host/scheme) into the auth check without relying
+//	    on client-supplied headers.
+//
+//	  - Routes: the routing table, organized into VirtualHosts matched by Host header.
+//	    Within a virtual host, routes are ordered longest-prefix-first so that more
+//	    specific paths take precedence. Delivered to Envoy via RDS so the route table
+//	    can be updated independently of the listener.
+//
+//	  - Clusters: upstream service definitions (analogous to an http.Transport target).
+//	    Each cluster uses LOGICAL_DNS discovery and is named after the destination URL
+//	    (wh_<host>_<port>). Multiple routes that share a destination reuse one cluster.
+//	    Cluster.Name and ClusterLoadAssignment.ClusterName must match — they are the
+//	    join key between the routing table and the endpoint set.
+
 const (
 	accessLogFilter      = "envoy.access_loggers.file"
 	authzFilter          = "envoy.filters.http.ext_authz"
@@ -48,7 +79,7 @@ func (s *xdsServer) makeClusters(ctls map[string]registry.ProxyControls) []types
 	clusterMappings := make(map[string]bool, 0)
 	clusters := make([]types.Resource, 0)
 
-	for k, v := range ctls {
+	for _, v := range ctls {
 		name := clusterName(v.Destination.URL)
 
 		if !clusterMappings[name] {
@@ -60,7 +91,7 @@ func (s *xdsServer) makeClusters(ctls map[string]registry.ProxyControls) []types
 					ConnectTimeout:       durationpb.New(s.xdsArgs.ConnectTimeout),
 					ClusterDiscoveryType: &cluster.Cluster_Type{Type: cluster.Cluster_LOGICAL_DNS},
 					LbPolicy:             cluster.Cluster_ROUND_ROBIN,
-					LoadAssignment:       makeEndpoint(k, v.Destination.URL),
+					LoadAssignment:       makeEndpoint(name, v.Destination.URL),
 					DnsLookupFamily:      cluster.Cluster_V4_ONLY,
 				},
 			)
@@ -526,10 +557,11 @@ func accessLogCfg() *anypb.Any {
 							"x_forwarded_for":       {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-FORWARDED-FOR)%"}},
 							"user_agent":            {Kind: &structpb.Value_StringValue{StringValue: "%REQ(USER-AGENT)%"}},
 							"request_id":            {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-REQUEST-ID)%"}},
-							"authority":             {Kind: &structpb.Value_StringValue{StringValue: "%REQ(:AUTHORITY)%"}},
 							"upstream_host":         {Kind: &structpb.Value_StringValue{StringValue: "%UPSTREAM_HOST%"}},
 							"x_piko_endpoint":       {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-PIKO-ENDPOINT)%"}},
-						},
+							"x_wormhole_community":  {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-COMMUNITY)%"}},
+							"x_wormhole_host":       {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-HOST)%"}},
+							"x_wormhole_scheme":     {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-SCHEME)%"}}},
 					},
 				},
 			},

@@ -10,12 +10,14 @@ import (
 	"hash/crc32"
 	"net/url"
 	"regexp"
+	"sort"
 
 	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
+	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 )
 
 const (
@@ -90,23 +92,37 @@ func (s *xdsServer) listenerName() string {
 	return normalizeName(initial)
 }
 
+//
+
 // clusterName generates a valid Envoy cluster name based on the provided URL.
 func clusterName(dst *url.URL) string {
 	initial := fmt.Sprintf("wh_%s_%d", dst.Hostname(), requests.IdentifyPort(dst))
 	return normalizeName(initial)
 }
 
-// computeChecksum generates a checksum for a given interface to assist in providing
-// a unique name for the snapshot. Users influenced structured are not utilized as
-// part of this checksum so we do not worry about the risk of conflicts.
-func computeChecksum(data any) string {
+// computeChecksum generates a checksum for the current set of proxy controls to
+// assist in providing a unique version string for each snapshot. Keys are sorted
+// before encoding so the result is stable across calls with identical data.
+func computeChecksum(data map[string]registry.ProxyControls) string {
 	var buffer bytes.Buffer
+
+	keys := make([]string, 0, len(data))
+	for k := range data {
+		keys = append(keys, k)
+	}
+
+	sort.Strings(keys)
 
 	encoder := gob.NewEncoder(&buffer)
 
-	if err := encoder.Encode(data); err != nil {
-		// Since we tightly control the check
-		return "unknown"
+	for _, k := range keys {
+		if err := encoder.Encode(k); err != nil {
+			return "unknown"
+		}
+
+		if err := encoder.Encode(data[k]); err != nil {
+			return "unknown"
+		}
 	}
 
 	return fmt.Sprintf("%08x", crc32.ChecksumIEEE(buffer.Bytes()))
