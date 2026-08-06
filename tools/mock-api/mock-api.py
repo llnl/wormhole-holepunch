@@ -102,7 +102,7 @@ def parse_jwt(token: str) -> dict:
 
 @app.route('/token-service/token/oauth', methods=['GET'])
 def api_oauth_exchange():
-    token = request.headers.get("access-token")
+    token = request.headers.get("x-auth-request-access-token")
     if not token:
         return Response("Not Found", status=404)
 

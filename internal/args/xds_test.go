@@ -13,6 +13,7 @@ func Test_XDSFlags(t *testing.T) {
 	var xds XDS
 	fb := &FlagBuilder{}
 	fb.XDSFlags(&xds)
+	fb.GlobalFlags(&GlobalSettings{})
 
 	app := &cli.Command{
 		Flags: fb.Flags,
@@ -21,9 +22,19 @@ func Test_XDSFlags(t *testing.T) {
 		},
 	}
 
+	t.Run("all headers debug", func(t *testing.T) {
+		err := app.Run(t.Context(), []string{
+			"test",
+			"--" + allAuthHeadersName, "true",
+		})
+
+		assert.ErrorContains(t, err, "--development")
+	})
+
 	t.Run("PopulatesDestination", func(t *testing.T) {
 		err := app.Run(t.Context(), []string{
 			"test",
+			"--" + develName, "true",
 			"--" + authClusterName, "auth_cluster_override",
 			"--" + authTimeoutName, "7s",
 			"--" + authMaxBytesName, "12345",
@@ -40,6 +51,7 @@ func Test_XDSFlags(t *testing.T) {
 			"--" + listenerPortName, "4242",
 			"--" + listenerAddressName, "127.0.0.1",
 			"--" + versionHeaderName, "true",
+			"--" + allAuthHeadersName, "true",
 		})
 
 		assert.NoError(t, err)
@@ -60,5 +72,6 @@ func Test_XDSFlags(t *testing.T) {
 		assert.Equal(t, uint32(4242), xds.ListenerPort)
 		assert.Equal(t, "127.0.0.1", xds.ListenerAddress)
 		assert.Equal(t, true, xds.VersionHeader)
+		assert.Equal(t, true, xds.AllAuthHeaders)
 	})
 }

@@ -739,6 +739,62 @@ func Test_xdsServer_authzFilterCfg(t *testing.T) {
 	})
 }
 
+func Test_xdsServer_extAuthAllowedHeaders(t *testing.T) {
+	t.Run("DevHostHeader absent when empty", func(t *testing.T) {
+		s := &xdsServer{
+			tokenSvcArgs: args.TokenService{
+				TokenHeader:    "x-token",
+				SubtokenHeader: "x-subtoken",
+				DevHostHeader:  "",
+			},
+		}
+
+		m := s.extAuthAllowedHeaders()
+
+		var exacts []string
+		for _, p := range m.GetPatterns() {
+			if e := p.GetExact(); e != "" {
+				exacts = append(exacts, e)
+			}
+		}
+
+		assert.NotContains(t, exacts, "", "empty DevHostHeader must not add a blank pattern")
+	})
+
+	t.Run("DevHostHeader included when set", func(t *testing.T) {
+		s := &xdsServer{
+			tokenSvcArgs: args.TokenService{
+				TokenHeader:    "x-token",
+				SubtokenHeader: "x-subtoken",
+				DevHostHeader:  "x-dev-host",
+			},
+		}
+
+		m := s.extAuthAllowedHeaders()
+
+		var exacts []string
+		for _, p := range m.GetPatterns() {
+			if e := p.GetExact(); e != "" {
+				exacts = append(exacts, e)
+			}
+		}
+
+		assert.Contains(t, exacts, "x-dev-host")
+	})
+
+	t.Run("nil return", func(t *testing.T) {
+		s := &xdsServer{
+			xdsArgs: args.XDS{
+				AllAuthHeaders: true,
+			},
+		}
+
+		got := s.extAuthAllowedHeaders()
+
+		assert.Nil(t, got)
+	})
+}
+
 func Test_xdsServer_requestHeaderFilterCfg(t *testing.T) {
 	t.Run("custom headers included", func(t *testing.T) {
 		s := &xdsServer{

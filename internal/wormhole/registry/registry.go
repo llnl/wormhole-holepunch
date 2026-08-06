@@ -279,6 +279,7 @@ func (i *internal) updateCtls(sources []RawSource) {
 			// set for the proxy driven by the route configuration.
 			RequestHeaders: map[string]string{},
 			CommunityID:    rs.CommunityID,
+			PrefixRewrite:  rs.PrefixRewrite,
 		}
 	}
 

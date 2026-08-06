@@ -6,6 +6,7 @@ import (
 
 const (
 	categoryTokens        = "Token Service"
+	devHostHeaderName     = "dev-host-header"
 	tokenHostName         = "token-host"
 	tokenExchangePathName = "token-exchange-path"
 	oauthExchangePathName = "oauth-exchange-path" //nolint:gosec
@@ -22,9 +23,8 @@ type TokenService struct {
 	TokenCipherKey    string
 	TokenExchangePath string
 	// TokenHeader is the key for the request header the token JWT will be set.
-	TokenHeader      string
-	TokenHeaderDebug bool
-	TokenHost        string
+	TokenHeader string
+	TokenHost   string
 	// TokenServiceAdmin is the optional token used in the x-token header.
 	TokenServiceAdmin string //nolint:gosec
 	OauthExchangePath string //nolint:gosec
@@ -36,6 +36,12 @@ type TokenService struct {
 	SubtokenHeader string //nolint:gosec
 	SubtokenPath   string //nolint:gosec
 
+	/* Development settings */
+
+	// DevHostHeader is the header used to identify the host for development mode. This
+	// will bypass the normal host identification process and is unsafe for production.
+	DevHostHeader    string
+	TokenHeaderDebug bool
 }
 
 func (f *FlagBuilder) TokenServiceFlags(ts *TokenService) *FlagBuilder {
@@ -62,14 +68,6 @@ func (f *FlagBuilder) TokenServiceFlags(ts *TokenService) *FlagBuilder {
 			Sources:     envWrapper("TOKEN_HEADER"),
 			Usage:       "Header where user token will be located",
 			Value:       "x-token",
-		},
-		&cli.BoolFlag{
-			Category:    categoryTokens,
-			Destination: &ts.TokenHeaderDebug,
-			Name:        tokenHeaderDebugName,
-			Sources:     envWrapper("TOKEN_HEADER_DEBUG"),
-			Usage:       "Log all inbound requests to headers at debug level",
-			Value:       false,
 		},
 		&cli.StringFlag{
 			Action:      validateURLAction,
@@ -118,6 +116,23 @@ func (f *FlagBuilder) TokenServiceFlags(ts *TokenService) *FlagBuilder {
 			Sources:     envWrapper("SUBTOKEN_PATH"),
 			Usage:       "Path used to request subtokens when required",
 			Value:       "/api/v1/admin/token",
+		},
+		&cli.StringFlag{
+			Action:      develActionString(devHostHeaderName),
+			Category:    categoryTokens,
+			Destination: &ts.DevHostHeader,
+			Name:        devHostHeaderName,
+			Sources:     envWrapper("DEV_HOST_HEADER"),
+			Usage:       "[Development only] Header used to identify the host for redirect/authorization purposes",
+		},
+		&cli.BoolFlag{
+			Action:      develActionBool(tokenHeaderDebugName),
+			Category:    categoryTokens,
+			Destination: &ts.TokenHeaderDebug,
+			Name:        tokenHeaderDebugName,
+			Sources:     envWrapper("TOKEN_HEADER_DEBUG"),
+			Usage:       "[Development only] Log all inbound requests to headers at debug level",
+			Value:       false,
 		},
 	}...)
 

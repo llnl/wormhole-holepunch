@@ -73,7 +73,7 @@ build-dir:
 	mkdir -p ${BUILDDIR}
 
 .PHONY: dev-permissions
-DEV_PERM_FILES := dex.yaml envoy.yaml oauth2-proxy.cfg
+DEV_PERM_FILES := dex.yaml envoy.yaml oauth2-proxy.cfg static.yaml
 
 dev-permissions:
 	chmod 664 $(addprefix build/dev/,$(DEV_PERM_FILES))

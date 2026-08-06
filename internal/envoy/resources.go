@@ -405,46 +405,7 @@ func (s *xdsServer) authzFilterCfg() *anypb.Any {
 			},
 		},
 		TransportApiVersion: core.ApiVersion_V3,
-		// If this option isn't specified, then all client request headers are included in the check request to a
-		// gRPC authorization server; however, even after setting these there are several included by default:
-		// “Host“, “Method“, “Path“, “Content-Length“, and “Authorization“.
-		AllowedHeaders: &matcher.ListStringMatcher{
-			Patterns: []*matcher.StringMatcher{
-				{
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: s.tokenSvcArgs.TokenHeader,
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: s.tokenSvcArgs.SubtokenHeader,
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: keys.RequestIDHeader,
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: "cookie",
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: "upgrade",
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: "connection",
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Prefix{
-						Prefix: "sec-websocket-",
-					},
-				}, {
-					MatchPattern: &matcher.StringMatcher_Exact{
-						Exact: keys.CommunityHeader,
-					},
-				},
-			},
-		},
+		AllowedHeaders:      s.extAuthAllowedHeaders(),
 	}
 
 	return mustMarshalAny(extAuthzConfig)
@@ -532,6 +493,63 @@ func (s *xdsServer) setHeader(key, value string) *mutation_rules.HeaderMutation 
 			},
 		},
 	}
+}
+
+func (s *xdsServer) extAuthAllowedHeaders() *matcher.ListStringMatcher {
+	// If this option isn't specified, then all client request headers are included in the check request to a
+	// gRPC authorization server; however, even after setting these there are several included by default:
+	// “Host“, “Method“, “Path“, “Content-Length“, and “Authorization“.
+	if s.xdsArgs.AllAuthHeaders {
+		return nil
+	}
+
+	m := &matcher.ListStringMatcher{
+		Patterns: []*matcher.StringMatcher{
+			{
+				MatchPattern: &matcher.StringMatcher_Exact{
+					Exact: s.tokenSvcArgs.TokenHeader,
+				},
+			}, {
+				MatchPattern: &matcher.StringMatcher_Exact{
+					Exact: s.tokenSvcArgs.SubtokenHeader,
+				},
+			}, {
+				MatchPattern: &matcher.StringMatcher_Exact{
+					Exact: keys.RequestIDHeader,
+				},
+			}, {
+				MatchPattern: &matcher.StringMatcher_Exact{
+					Exact: "cookie",
+				},
+			}, {
+				MatchPattern: &matcher.StringMatcher_Exact{
+					Exact: "upgrade",
+				},
+			}, {
+				MatchPattern: &matcher.StringMatcher_Exact{
+					Exact: "connection",
+				},
+			}, {
+				MatchPattern: &matcher.StringMatcher_Prefix{
+					Prefix: "sec-websocket-",
+				},
+			}, {
+				MatchPattern: &matcher.StringMatcher_Exact{
+					Exact: keys.CommunityHeader,
+				},
+			},
+		},
+	}
+
+	if s.tokenSvcArgs.DevHostHeader != "" {
+		m.Patterns = append(m.Patterns, &matcher.StringMatcher{
+			MatchPattern: &matcher.StringMatcher_Exact{
+				Exact: s.tokenSvcArgs.DevHostHeader,
+			},
+		})
+	}
+
+	return m
 }
 
 // accessLogCfg creates an Envoy file access log configuration in JSON format. Logs include request

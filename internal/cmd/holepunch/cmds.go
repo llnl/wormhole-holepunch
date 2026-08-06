@@ -15,6 +15,7 @@ const (
 
 var (
 	cacheArgs    = &args.Cacher{}
+	globalArgs   = &args.GlobalSettings{}
 	loggingArgs  = &args.Logging{}
 	routeRegArgs = &args.RouteRegistry{}
 	storageArgs  = &args.Storage{}
@@ -24,7 +25,8 @@ var (
 )
 
 func Tasks() *cli.Command {
-	f := args.NewBuilder()
+	f := args.NewBuilder().
+		GlobalFlags(globalArgs)
 
 	return &cli.Command{
 		Name:    "holepunch",

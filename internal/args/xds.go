@@ -8,6 +8,7 @@ import (
 
 const (
 	categoryXDS           = "xDS Control Panel"
+	allAuthHeadersName    = "all-auth-headers"
 	authClusterName       = "auth-cluster"
 	authTimeoutName       = "auth-timeout"
 	authMaxBytesName      = "auth-max-bytes"
@@ -62,6 +63,13 @@ type XDS struct {
 	ListenerAddress string
 	// VersionHeader indicates if the x-holepunch-version header should be injected.
 	VersionHeader bool
+
+	/* Development settings */
+
+	// AllowAllHeaders indicates if all client request headers should be included in the
+	// check request to a gRPC authorization server. By default on a pre-established sub-set of
+	// headers will be forwarded.
+	AllAuthHeaders bool
 }
 
 func (f *FlagBuilder) XDSFlags(xds *XDS) *FlagBuilder {
@@ -191,6 +199,15 @@ func (f *FlagBuilder) XDSFlags(xds *XDS) *FlagBuilder {
 			Name:        versionHeaderName,
 			Sources:     envWrapper("VERSION_HEADER"),
 			Usage:       "Indicates if the x-holepunch-version header should be injected",
+		},
+
+		&cli.BoolFlag{
+			Action:      develActionBool(allAuthHeadersName),
+			Category:    categoryXDS,
+			Destination: &xds.AllAuthHeaders,
+			Name:        allAuthHeadersName,
+			Sources:     envWrapper("ALL_AUTH_HEADERS"),
+			Usage:       "[Development only] All request headers should be included in the ext_auth check",
 		},
 	}...)
 
