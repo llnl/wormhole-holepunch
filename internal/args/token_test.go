@@ -12,6 +12,7 @@ func Test_TokenServiceFlags(t *testing.T) {
 	var ts TokenService
 	fb := &FlagBuilder{}
 	fb.TokenServiceFlags(&ts)
+	fb.GlobalFlags(&GlobalSettings{})
 
 	app := &cli.Command{
 		Flags: fb.Flags,
@@ -20,9 +21,30 @@ func Test_TokenServiceFlags(t *testing.T) {
 		},
 	}
 
+	t.Run("token header debug", func(t *testing.T) {
+		err := app.Run(t.Context(), []string{
+			"test",
+			"--" + tokenHeaderDebugName, "true",
+			"--" + tokenHostName, "http://token-host.example.test",
+		})
+
+		assert.ErrorContains(t, err, "--development")
+	})
+
+	t.Run("dev host debug", func(t *testing.T) {
+		err := app.Run(t.Context(), []string{
+			"test",
+			"--" + devHostHeaderName, "test",
+			"--" + tokenHostName, "http://token-host.example.test",
+		})
+
+		assert.ErrorContains(t, err, "--development")
+	})
+
 	t.Run("PopulatesDestination", func(t *testing.T) {
 		err := app.Run(t.Context(), []string{
 			"test",
+			"--" + develName, "true",
 			"--" + tokenCipherKeyName, "cipher-key-override",
 			"--" + tokenExchangePathName, "/exchange/jwt",
 			"--" + tokenHeaderName, "x-user-token",
@@ -33,6 +55,7 @@ func Test_TokenServiceFlags(t *testing.T) {
 			"--" + oauthProxyName, "http://oauth-proxy.example.test",
 			"--" + subtokenHeaderName, "x-custom-subtoken",
 			"--" + subtokenPathName, "/admin/subtoken",
+			"--" + devHostHeaderName, "x-dev-host",
 		})
 
 		assert.NoError(t, err)
@@ -47,5 +70,6 @@ func Test_TokenServiceFlags(t *testing.T) {
 		assert.Equal(t, "http://oauth-proxy.example.test", ts.OauthProxy)
 		assert.Equal(t, "x-custom-subtoken", ts.SubtokenHeader)
 		assert.Equal(t, "/admin/subtoken", ts.SubtokenPath)
+		assert.Equal(t, "x-dev-host", ts.DevHostHeader)
 	})
 }

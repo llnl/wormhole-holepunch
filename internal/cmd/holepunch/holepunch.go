@@ -16,10 +16,8 @@ import (
 )
 
 func startAuthCmd(ctx context.Context, _ *cli.Command) error {
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop, ll := defaultInit(ctx)
 	defer stop()
-
-	ll := loadLogging()
 
 	otelReq, shutdown := loadOTEL(ctx, ll)
 	if otelReq {
@@ -37,10 +35,8 @@ func startAuthCmd(ctx context.Context, _ *cli.Command) error {
 }
 
 func startAdminCmd(ctx context.Context, _ *cli.Command) error {
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop, ll := defaultInit(ctx)
 	defer stop()
-
-	ll := loadLogging()
 
 	otelReq, shutdown := loadOTEL(ctx, ll)
 	if otelReq {
@@ -58,10 +54,9 @@ func startAdminCmd(ctx context.Context, _ *cli.Command) error {
 }
 
 func startCacherCmd(ctx context.Context, _ *cli.Command) error {
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop, ll := defaultInit(ctx)
 	defer stop()
 
-	ll := loadLogging()
 	tokenAuth := loadAuthenticator(loadTokenStore(ctx, ll), ll)
 	routeReg := loadRegistry(ctx, ll)
 
@@ -71,10 +66,8 @@ func startCacherCmd(ctx context.Context, _ *cli.Command) error {
 }
 
 func startXDSCmd(ctx context.Context, _ *cli.Command) error {
-	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop, ll := defaultInit(ctx)
 	defer stop()
-
-	ll := loadLogging()
 
 	otelReq, shutdown := loadOTEL(ctx, ll)
 	if otelReq {
@@ -91,6 +84,17 @@ func startXDSCmd(ctx context.Context, _ *cli.Command) error {
 }
 
 //
+
+func defaultInit(ctx context.Context) (context.Context, context.CancelFunc, logs.Logger) {
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	ll := loadLogging()
+
+	if globalArgs.Development {
+		ll.Warn("running in development mode")
+	}
+
+	return ctx, stop, ll
+}
 
 func manageRegistryRefresh(ctx context.Context, routeReg registry.Router) {
 	err := routeReg.SubscribeToSources(ctx)

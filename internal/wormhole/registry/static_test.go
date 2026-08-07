@@ -31,5 +31,6 @@ func Test_loadStaticFile(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Len(t, got, 2)
+		assert.Equal(t, "/foo", got[0].PrefixRewrite)
 	})
 }

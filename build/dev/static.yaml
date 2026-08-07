@@ -1,0 +1,12 @@
+sources: [
+  {
+    id: "360A2E52-4552-437E-BB05-118B51B5135D",
+    src: "http://envoy.holepunch.localwormhole:3128/whoami",
+    dst: "http://mock-api:9001",
+    rules: {
+      allowed: {
+        users: [bar, foo]
+      }
+    }
+  }
+]

@@ -71,21 +71,7 @@ func StartEnvoyAuth(
 //
 
 func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.CheckResponse, error) {
-	// Details on the available attributes established by Envoy can be found:
-	// https://www.envoyproxy.io/docs/envoy/v1.38.3/intro/arch_overview/advanced/attributes.html
-	// Host and Scheme are sourced from context_extensions, which are bound to the matched
-	// route config by Envoy at routing time and cannot be influenced by client-supplied headers.
-	http := req.GetAttributes().GetRequest().GetHttp()
-	ctxExt := req.GetAttributes().GetContextExtensions()
-
-	details := requests.RequestDetails{
-		Headers:     http.GetHeaders(),
-		CommunityID: ctxExt[keys.CommunityHeader],
-		RouteID:     ctxExt[keys.PikoHeader],
-		Host:        ctxExt[keys.WormholeHostHeader],
-		Scheme:      ctxExt[keys.WormholeSchemeHeader],
-		Path:        http.GetPath(),
-	}
+	details := s.establishReqDetails(req)
 
 	ctx, reqLog, endSpan := s.authLogger(ctx, details, req)
 	defer endSpan()
@@ -128,14 +114,41 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 
 	// Now that we've established the request is authorized, we can set the headers
 	// that can be used by the upstream services.
-	authResp.SetHeaders[keys.PikoHeader] = ctxExt[keys.PikoHeader]
-	authResp.SetHeaders[keys.WormholeHostHeader] = ctxExt[keys.WormholeHostHeader]
-	authResp.SetHeaders[keys.WormholeSchemeHeader] = ctxExt[keys.WormholeSchemeHeader]
+	authResp.SetHeaders[keys.PikoHeader] = details.RouteID
+	authResp.SetHeaders[keys.WormholeHostHeader] = details.Host
+	authResp.SetHeaders[keys.WormholeSchemeHeader] = details.Scheme
 
 	return s.allowRequest(ctx, authResp, reqLog), nil
 }
 
 //
+
+func (s *authServer) establishReqDetails(req *auth.CheckRequest) requests.RequestDetails {
+	// Details on the available attributes established by Envoy can be found:
+	// https://www.envoyproxy.io/docs/envoy/v1.38.3/intro/arch_overview/advanced/attributes.html
+	// Host and Scheme are sourced from context_extensions, which are bound to the matched
+	// route config by Envoy at routing time and cannot be influenced by client-supplied headers.
+	http := req.GetAttributes().GetRequest().GetHttp()
+	ctxExt := req.GetAttributes().GetContextExtensions()
+
+	details := requests.RequestDetails{
+		Headers:     http.GetHeaders(),
+		CommunityID: ctxExt[keys.CommunityHeader],
+		RouteID:     ctxExt[keys.PikoHeader],
+		Host:        ctxExt[keys.WormholeHostHeader],
+		Scheme:      ctxExt[keys.WormholeSchemeHeader],
+	}
+
+	// When this is established we've already ensure that the server is running in development mode,
+	// so we can safely use this header to override the host for redirect/authorization purposes.
+	if s.tokenSvcArgs.DevHostHeader != "" {
+		if h := details.Headers[s.tokenSvcArgs.DevHostHeader]; h != "" {
+			details.Host = h
+		}
+	}
+
+	return details
+}
 
 func (s *authServer) authLogger(
 	ctx context.Context,
