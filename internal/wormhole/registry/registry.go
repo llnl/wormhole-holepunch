@@ -23,6 +23,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/rules"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
 )
 
@@ -34,6 +35,7 @@ const (
 func Initialize(
 	ctx context.Context,
 	client requests.Client,
+	oauthValid oauthmngr.Validator,
 	routePS streams.PubSub,
 	routeRegArgs args.RouteRegistry,
 	ll logs.Logger,
@@ -51,6 +53,7 @@ func Initialize(
 	i := &internal{
 		client:       client,
 		ll:           ll,
+		oauthValid:   oauthValid,
 		routePS:      routePS,
 		routeRegArgs: routeRegArgs,
 		routesURL:    u.JoinPath(routeRegArgs.RoutePath).String(),
@@ -64,7 +67,7 @@ func Initialize(
 	// We will dynamically fetch/update the controls during the Holepunch
 	// startup process, simply use this as an initial step to establish any
 	// statically configured resources.
-	i.updateCtls([]RawSource{})
+	i.updateCtls([]wormhole.RawSource{})
 
 	i.ll.Debug("successfully initialized routes")
 
@@ -76,10 +79,11 @@ func Initialize(
 type internal struct {
 	client       requests.Client
 	ll           logs.Logger
+	oauthValid   oauthmngr.Validator
 	routePS      streams.PubSub
 	routeRegArgs args.RouteRegistry
 	routesURL    string
-	staticSrc    []RawSource
+	staticSrc    []wormhole.RawSource
 	vv           rules.Validator
 
 	mu sync.RWMutex
@@ -104,6 +108,11 @@ type authControls struct {
 	CommunityID string      `json:"community_id"`
 	Allowed     userDetails `json:"allowed"`
 	Disallowed  userDetails `json:"disallowed"`
+	// preOauth is a function that can be used to perform any pre-authorization checks
+	// that may be required for a given route. In this scenario it is used to support
+	// oauth2 flows helping to manage request sessions or indicating (via the boolean)
+	// if the remainder of the authorization checks should be skipped.
+	preOauth func(requests.RequestDetails) (bool, *errs.StatusError) `json:"-"`
 }
 
 type userDetails struct {
@@ -165,6 +174,32 @@ func (i *internal) FetchProxyControls() map[string]ProxyControls {
 	return i.proxyCtls
 }
 
+func (i *internal) PreAuth(
+	ctx context.Context,
+	ll logs.Logger,
+	req requests.RequestDetails,
+) (bool, *errs.StatusError) {
+	ctx, endSpan := ll.StartSpan(ctx, "PreAuth")
+	defer endSpan()
+
+	skip, reqErr := i.preAuthCtls(req)
+	if reqErr != nil {
+		ll.InfoCtx(
+			ctx,
+			"pre-auth denied",
+			ll.StringArg("error", reqErr.Error()),
+		)
+
+		return false, reqErr
+	}
+
+	if skip {
+		ll.InfoCtx(ctx, "pre-auth allowed request to skip standard auth flow")
+	}
+
+	return skip, nil
+}
+
 func (i *internal) PublishSources(ctx context.Context) error {
 	i.ll.Debug("fetching registry: " + i.routesURL)
 
@@ -177,7 +212,7 @@ func (i *internal) PublishSources(ctx context.Context) error {
 }
 
 func (i *internal) RefreshControls(msg jetstream.Msg) {
-	var sources []RawSource
+	var sources []wormhole.RawSource
 
 	err := json.Unmarshal(msg.Data(), &sources)
 	if err != nil {
@@ -207,21 +242,9 @@ func (i *internal) authorizeProxyCtls(
 	req requests.RequestDetails,
 	tknCtx wormhole.TokenContext,
 ) *errs.StatusError {
-	// Read controls and version atomically
-	i.mu.RLock()
-
-	id, gErr := i.identifyID(req)
+	ctl, gErr := i.findAuthCtl(req)
 	if gErr != nil {
-		i.mu.RUnlock()
 		return gErr
-	}
-
-	ctl, found := i.authCtls[id]
-
-	i.mu.RUnlock()
-
-	if !found {
-		return errs.NewNotFoundErr(errors.New("no route found for " + id))
 	}
 
 	// The presence of any external_id in a token's payload implies it's a subtoken
@@ -237,6 +260,41 @@ func (i *internal) authorizeProxyCtls(
 	reqErr := ctl.enforce(tknCtx)
 
 	return reqErr
+}
+
+// findAuthCtl safely identifies and retrieves the authControls matching the request.
+func (i *internal) findAuthCtl(req requests.RequestDetails) (authControls, *errs.StatusError) {
+	i.mu.RLock()
+
+	id, gErr := i.identifyID(req)
+	if gErr != nil {
+		i.mu.RUnlock()
+		return authControls{}, gErr
+	}
+
+	ctl, found := i.authCtls[id]
+
+	i.mu.RUnlock()
+
+	if !found {
+		return authControls{}, errs.NewNotFoundErr(errors.New("no route found for " + id))
+	}
+
+	return ctl, nil
+}
+
+// preAuthCtls runs the matched route's preOauth check, if one was established for it.
+func (i *internal) preAuthCtls(req requests.RequestDetails) (bool, *errs.StatusError) {
+	ctl, gErr := i.findAuthCtl(req)
+	if gErr != nil {
+		return false, gErr
+	}
+
+	if ctl.preOauth == nil {
+		return false, nil
+	}
+
+	return ctl.preOauth(req)
 }
 
 func (i *internal) identifyID(req requests.RequestDetails) (string, *errs.StatusError) {
@@ -264,11 +322,15 @@ func (i *internal) identifyID(req requests.RequestDetails) (string, *errs.Status
 	return id, nil
 }
 
-func (i *internal) updateCtls(sources []RawSource) {
+func (i *internal) updateCtls(sources []wormhole.RawSource) {
 	authCtls := make(map[string]authControls, 0)
 	proxyCtls := make(map[string]ProxyControls, 0)
 
-	for _, rs := range append(i.staticSrc, sources...) {
+	baseSources := make([]wormhole.RawSource, 0, len(i.staticSrc)+len(sources))
+	baseSources = append(baseSources, i.staticSrc...)
+	baseSources = append(baseSources, sources...)
+
+	for _, rs := range i.oauthValid.ExpandSources(baseSources) {
 		i.ll.Debugf("updating mapping for %s (%s)", rs.Destination.Raw, rs.ID)
 
 		authCtls[rs.ID] = i.convert(rs)

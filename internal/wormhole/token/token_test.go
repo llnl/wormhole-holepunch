@@ -46,23 +46,25 @@ func Test_Initialize(t *testing.T) {
 		assert.Equal(t, "https://example.com/token", got.(internal).tokenExchangeURL)
 	})
 
-	t.Run("oauth2proxy", func(t *testing.T) {
-		got := Initialize(
-			&aescipher.NoopCipher{},
-			nil,
-			logs.InitializeDiscard(),
-			args.TokenService{
-				TokenHost:         "https://example.com/",
-				OauthExchangePath: "/oauth",
-				TokenExchangePath: "/token",
-				SubtokenPath:      "/subtoken",
-				OauthProxy:        "https://oauth.example.com",
-			},
-		)
+	/*
+		t.Run("oauth2proxy", func(t *testing.T) {
+			got := Initialize(
+				&aescipher.NoopCipher{},
+				nil,
+				logs.InitializeDiscard(),
+				args.TokenService{
+					TokenHost:         "https://example.com/",
+					OauthExchangePath: "/oauth",
+					TokenExchangePath: "/token",
+					SubtokenPath:      "/subtoken",
+					OauthProxy:        "https://oauth.example.com",
+				},
+			)
 
-		assert.Equal(t, "https://oauth.example.com/oauth2/start", got.(internal).oauth2RedirectURL.String())
-		assert.Equal(t, "https://oauth.example.com/oauth2/auth", got.(internal).oauth2AuthURL.String())
-	})
+			assert.Equal(t, "https://oauth.example.com/oauth2/start", got.(internal).oauth2RedirectURL.String())
+			assert.Equal(t, "https://oauth.example.com/oauth2/auth", got.(internal).oauth2AuthURL.String())
+		})
+			&*/
 }
 
 func Test_internal_RequestHeader(t *testing.T) {

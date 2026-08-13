@@ -17,5 +17,6 @@ mockgen ctls/logs/logs.go mock_logs/mock_logs.go mock_logs
 mockgen ctls/requests/requests.go mock_requests/mock_requests.go mock_requests
 mockgen ctls/streams/pubsub.go mock_streams/mock_pubsub.go mock_streams
 mockgen ctls/streams/kvstore.go mock_streams/mock_kvstore.go mock_streams
+mockgen oauthmngr/manager.go mock_oauthmngr/mock_oauthmngr.go mock_oauthmngr
 mockgen wormhole/registry/router.go mock_registry/mock_registry.go mock_registry
 mockgen wormhole/token/token.go mock_token/mock_token.go mock_token

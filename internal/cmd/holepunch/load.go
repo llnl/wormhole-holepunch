@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/aescipher"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/token"
 )
@@ -30,6 +32,18 @@ func loadLogging() logs.Logger {
 	}
 
 	return ll
+}
+
+func loadOauthMngr(
+	kvStore streams.KVStore,
+	ll logs.Logger,
+) oauthmngr.Validator {
+	oauthValid, err := oauthmngr.Initialize(kvStore, ll, *oauthArgs)
+	if err != nil {
+		log.Fatalf("failed to init oauth manager: %s", err.Error())
+	}
+
+	return oauthValid
 }
 
 func loadOTEL(
@@ -57,10 +71,12 @@ func loadOTEL(
 func loadRegistry(
 	ctx context.Context,
 	ll logs.Logger,
+	oauthValid oauthmngr.Validator,
 ) registry.Router {
 	routes, err := registry.Initialize(
 		ctx,
 		requests.DefaultClient(ll),
+		oauthValid,
 		loadRoutePubSub(ctx, ll),
 		*routeRegArgs,
 		ll,
@@ -89,6 +105,18 @@ func loadTokenStore(
 	ll logs.Logger,
 ) streams.KVStore {
 	ctls, err := streams.InitializeTokens(ctx, *storageArgs, ll)
+	if err != nil {
+		log.Fatalf("failed to load route stream: %s", err.Error())
+	}
+
+	return ctls
+}
+
+func loadSessionStore(
+	ctx context.Context,
+	ll logs.Logger,
+) streams.KVStore {
+	ctls, err := streams.InitializeSessions(ctx, *storageArgs, ll, time.Duration(oauthArgs.NonceTTL))
 	if err != nil {
 		log.Fatalf("failed to load route stream: %s", err.Error())
 	}

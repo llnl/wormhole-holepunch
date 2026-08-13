@@ -5,6 +5,8 @@ package wormhole
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 )
 
 // TokenContext organize core details regarding a user's request and any
@@ -33,6 +35,29 @@ type TokenPayload struct {
 	Exp FloatTime `json:"exp"`
 	// TokenID for the request token or sessions.
 	TokenID string `json:"token_id"`
+}
+
+//
+
+type RawSource struct {
+	ID          string         `json:"id" yaml:"id" validate:"uuid"`
+	Source      keys.URLString `json:"src" yaml:"src" validate:"required,wormholeURL"`
+	Destination keys.URLString `json:"dst" yaml:"dst" validate:"required,wormholeURL"`
+	// PrefixRewrite defines how any URL path defined in the Source will be rewritten before
+	// passing along to the Destination. At this time only the statically defined source file
+	// offers the ability to provide this configuration.
+	PrefixRewrite string `json:"prefix_rewrite" yaml:"prefix_rewrite"`
+	CommunityID   string `json:"community_id" yaml:"community_id" validate:"omitempty,uuid"`
+	Rules         struct {
+		Disallowed struct {
+			Users  []string `json:"users" yaml:"users" validate:"omitempty,headerVal"`
+			Groups []string `json:"groups" yaml:"groups" validate:"omitempty,headerVal"`
+		} `json:"disallowed" yaml:"disallowed"`
+		Allowed struct {
+			Users  []string `json:"users" yaml:"users" validate:"omitempty,headerVal"`
+			Groups []string `json:"groups" yaml:"groups" validate:"omitempty,headerVal"`
+		} `json:"allowed" yaml:"allowed"`
+	} `json:"rules" yaml:"rules"`
 }
 
 //

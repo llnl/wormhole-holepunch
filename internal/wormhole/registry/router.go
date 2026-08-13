@@ -47,6 +47,14 @@ type Router interface {
 	// FetchProxyControls retrieves all currently known proxy controls.
 	FetchProxyControls() map[string]ProxyControls
 
+	// PreAuth should be run before any authorization checks have occurred. The
+	// returned boolean indicates whether the caller should skip the normal auth flow.
+	PreAuth(
+		ctx context.Context,
+		ll logs.Logger,
+		req requests.RequestDetails,
+	) (bool, *errs.StatusError)
+
 	// PublishSources retrieves that latest routes and publishes them if changes detected.
 	PublishSources(ctx context.Context) error
 
@@ -57,6 +65,5 @@ type Router interface {
 	// ReportControlsJSON generate JSON output for those currently identified.
 	ReportControlsJSON() []byte
 
-	// SubscribeToSources
 	SubscribeToSources(ctx context.Context) error
 }

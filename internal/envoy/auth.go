@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"maps"
 	"net"
 
 	core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
@@ -20,6 +21,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/token"
 )
@@ -28,6 +30,7 @@ type authServer struct {
 	auth.UnimplementedAuthorizationServer
 
 	ll           logs.Logger
+	oauthValid   oauthmngr.Validator
 	routeReg     registry.Router
 	tokenAuth    token.Authenticator
 	tokenSvcArgs args.TokenService
@@ -36,6 +39,7 @@ type authServer struct {
 func StartEnvoyAuth(
 	ctx context.Context,
 	ll logs.Logger,
+	oauthValid oauthmngr.Validator,
 	routeReg registry.Router,
 	tokenAuth token.Authenticator,
 	tokenSvcArgs args.TokenService,
@@ -54,6 +58,7 @@ func StartEnvoyAuth(
 		grpcServer,
 		&authServer{
 			ll:           ll,
+			oauthValid:   oauthValid,
 			routeReg:     routeReg,
 			tokenAuth:    tokenAuth,
 			tokenSvcArgs: tokenSvcArgs,
@@ -77,6 +82,19 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 	defer endSpan()
 
 	s.headerDebug(ctx, req, reqLog)
+
+	skip, sErr := s.routeReg.PreAuth(ctx, reqLog, details)
+	if sErr != nil {
+		sErr.LogError(ctx, reqLog)
+
+		return s.denyRequest(ctx, sErr, reqLog), nil
+	}
+
+	if skip {
+		reqLog.DebugCtx(ctx, "pre-auth allowed request to bypass standard auth flow")
+
+		return s.allowRequest(ctx, token.AuthResponse{SetHeaders: s.routingHeaders(details, true)}, reqLog), nil
+	}
 
 	tknCtx, authResp, sErr := s.tokenAuth.RequestHeader(ctx, reqLog, details)
 	if sErr != nil {
@@ -113,14 +131,25 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 
 	// Now that we've established the request is authorized, we can set the headers
 	// that can be used by the upstream services.
-	authResp.SetHeaders[keys.PikoHeader] = details.RouteID
-	authResp.SetHeaders[keys.WormholeHostHeader] = details.Host
-	authResp.SetHeaders[keys.WormholeSchemeHeader] = details.Scheme
+	maps.Copy(authResp.SetHeaders, s.routingHeaders(details, false))
 
 	return s.allowRequest(ctx, authResp, reqLog), nil
 }
 
 //
+
+func (s *authServer) routingHeaders(details requests.RequestDetails, skipped bool) map[string]string {
+	headers := map[string]string{
+		keys.WormholeHostHeader:   details.Host,
+		keys.WormholeSchemeHeader: details.Scheme,
+	}
+
+	if !skipped {
+		headers[keys.PikoHeader] = details.RouteID
+	}
+
+	return headers
+}
 
 func (s *authServer) establishReqDetails(req *auth.CheckRequest) requests.RequestDetails {
 	// Details on the available attributes established by Envoy can be found:
@@ -132,6 +161,7 @@ func (s *authServer) establishReqDetails(req *auth.CheckRequest) requests.Reques
 
 	details := requests.RequestDetails{
 		Headers:     http.GetHeaders(),
+		ClientIP:    requests.IdentifyClientIP(http.GetHeaders()),
 		CommunityID: ctxExt[keys.CommunityHeader],
 		RouteID:     ctxExt[keys.PikoHeader],
 		Host:        ctxExt[keys.WormholeHostHeader],

@@ -21,6 +21,7 @@ spack.lock
 ###########################
 .claude/
 .gemini/
+.github/agents
 .codex/
 
 ###########################

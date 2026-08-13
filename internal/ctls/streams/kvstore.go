@@ -17,8 +17,14 @@ type KVStore interface {
 	// Get retrieves and unmarshalls a given key from the store.
 	Get(ctx context.Context, k string, v any) error
 
+	// GetWithRevision retrieves and unmarshalls a given key from the store along with its revision number.
+	GetWithRevision(ctx context.Context, k string, v any) (uint64, error)
+
 	// Put marshalls and places it in a store at the given key.
 	Put(ctx context.Context, k string, v any) error
+
+	// UpdateWithRevision atomically updates a key only if the revision matches (compare-and-swap).
+	UpdateWithRevision(ctx context.Context, k string, v any, revision uint64) error
 }
 
 func (c *ctls) AllKeys(ctx context.Context) ([]string, error) {
@@ -64,6 +70,22 @@ func (c *ctls) Get(ctx context.Context, k string, v any) error {
 	return json.Unmarshal(entry.Value(), v)
 }
 
+func (c *ctls) GetWithRevision(ctx context.Context, k string, v any) (uint64, error) {
+	ctx, endSpan := c.ll.StartSpan(ctx, "KVStore_GetWithRevision")
+	defer endSpan()
+
+	entry, err := c.kv.Get(ctx, k)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := json.Unmarshal(entry.Value(), v); err != nil {
+		return 0, err
+	}
+
+	return entry.Revision(), nil
+}
+
 func (c *ctls) Put(ctx context.Context, k string, v any) error {
 	ctx, endSpan := c.ll.StartSpan(ctx, "KVStore_Put")
 	defer endSpan()
@@ -74,6 +96,20 @@ func (c *ctls) Put(ctx context.Context, k string, v any) error {
 	}
 
 	_, err = c.kv.Put(ctx, k, b)
+
+	return err
+}
+
+func (c *ctls) UpdateWithRevision(ctx context.Context, k string, v any, revision uint64) error {
+	ctx, endSpan := c.ll.StartSpan(ctx, "KVStore_UpdateWithRevision")
+	defer endSpan()
+
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	_, err = c.kv.Update(ctx, k, b, revision)
 
 	return err
 }

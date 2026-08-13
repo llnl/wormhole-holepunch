@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
+	"github.com/llnl/wormhole-holepunch/internal/wormhole"
 )
 
 var (
@@ -13,33 +13,10 @@ var (
 	waitRetry = 30 * time.Second
 )
 
-type RawSource struct {
-	ID          string         `json:"id" yaml:"id" validate:"uuid"`
-	Source      keys.URLString `json:"src" yaml:"src" validate:"required,wormholeURL"`
-	Destination keys.URLString `json:"dst" yaml:"dst" validate:"required,wormholeURL"`
-	// PrefixRewrite defines how any URL path defined in the Source will be rewritten before
-	// passing along to the Destination. At this time only the statically defined source file
-	// offers the ability to provide this configuration.
-	PrefixRewrite string `json:"prefix_rewrite" yaml:"prefix_rewrite"`
-	CommunityID   string `json:"community_id" yaml:"community_id" validate:"omitempty,uuid"`
-	Rules         struct {
-		Disallowed struct {
-			Users  []string `json:"users" yaml:"users" validate:"omitempty,headerVal"`
-			Groups []string `json:"groups" yaml:"groups" validate:"omitempty,headerVal"`
-		} `json:"disallowed" yaml:"disallowed"`
-		Allowed struct {
-			Users  []string `json:"users" yaml:"users" validate:"omitempty,headerVal"`
-			Groups []string `json:"groups" yaml:"groups" validate:"omitempty,headerVal"`
-		} `json:"allowed" yaml:"allowed"`
-	} `json:"rules" yaml:"rules"`
-}
-
-//
-
-func (i *internal) request(ctx context.Context) ([]RawSource, error) {
+func (i *internal) request(ctx context.Context) ([]wormhole.RawSource, error) {
 	var reqErr *requests.RequestFailedError
 
-	resp := make([]RawSource, 0)
+	resp := make([]wormhole.RawSource, 0)
 
 	for range maxRetry {
 		reqErr = i.client.GetJSON(ctx, i.routesURL, map[string]string{}, &resp)
@@ -67,7 +44,7 @@ func (i *internal) request(ctx context.Context) ([]RawSource, error) {
 	return resp, reqErr
 }
 
-func (i *internal) convert(raw RawSource) authControls {
+func (i *internal) convert(raw wormhole.RawSource) authControls {
 	return authControls{
 		Allowed: userDetails{
 			Groups: sliceToMap(raw.Rules.Allowed.Groups),
@@ -81,6 +58,7 @@ func (i *internal) convert(raw RawSource) authControls {
 		Destination: raw.Destination.Raw,
 		Source:      raw.Source.Key,
 		CommunityID: raw.CommunityID,
+		preOauth:    i.oauthValid.EstablishPreAuthFunc(raw),
 	}
 }
 

@@ -537,6 +537,10 @@ func (s *xdsServer) extAuthAllowedHeaders() *matcher.ListStringMatcher {
 				MatchPattern: &matcher.StringMatcher_Exact{
 					Exact: keys.CommunityHeader,
 				},
+			}, {
+				MatchPattern: &matcher.StringMatcher_Exact{
+					Exact: keys.XForwardedForHeader,
+				},
 			},
 		},
 	}

@@ -24,14 +24,18 @@ func startAuthCmd(ctx context.Context, _ *cli.Command) error {
 		defer otelShutdown(ctx, ll, shutdown)
 	}
 
-	tokenAuth := loadAuthenticator(loadTokenStore(ctx, ll), ll)
-	routeReg := loadRegistry(ctx, ll)
+	tokenStore := loadTokenStore(ctx, ll)
+	sessionStore := loadSessionStore(ctx, ll)
+	oauthValid := loadOauthMngr(sessionStore, ll)
+
+	tokenAuth := loadAuthenticator(tokenStore, ll)
+	routeReg := loadRegistry(ctx, ll, oauthValid)
 
 	ll.Info("starting up holepunch envoy-auth...")
 
 	go manageRegistryRefresh(ctx, routeReg)
 
-	return envoy.StartEnvoyAuth(ctx, ll, routeReg, tokenAuth, *tokenSvcArgs, *webArgs)
+	return envoy.StartEnvoyAuth(ctx, ll, oauthValid, routeReg, tokenAuth, *tokenSvcArgs, *webArgs)
 }
 
 func startAdminCmd(ctx context.Context, _ *cli.Command) error {
@@ -43,8 +47,12 @@ func startAdminCmd(ctx context.Context, _ *cli.Command) error {
 		defer otelShutdown(ctx, ll, shutdown)
 	}
 
-	tokenAuth := loadAuthenticator(loadTokenStore(ctx, ll), ll)
-	routeReg := loadRegistry(ctx, ll)
+	tokenStore := loadTokenStore(ctx, ll)
+	sessionStore := loadSessionStore(ctx, ll)
+	oauthValid := loadOauthMngr(sessionStore, ll)
+
+	tokenAuth := loadAuthenticator(tokenStore, ll)
+	routeReg := loadRegistry(ctx, ll, oauthValid)
 
 	go manageRegistryRefresh(ctx, routeReg)
 
@@ -57,8 +65,12 @@ func startCacherCmd(ctx context.Context, _ *cli.Command) error {
 	ctx, stop, ll := defaultInit(ctx)
 	defer stop()
 
-	tokenAuth := loadAuthenticator(loadTokenStore(ctx, ll), ll)
-	routeReg := loadRegistry(ctx, ll)
+	tokenStore := loadTokenStore(ctx, ll)
+	sessionStore := loadSessionStore(ctx, ll)
+	oauthValid := loadOauthMngr(sessionStore, ll)
+
+	tokenAuth := loadAuthenticator(tokenStore, ll)
+	routeReg := loadRegistry(ctx, ll, oauthValid)
 
 	ll.Info("starting up holepunch cacher...")
 
@@ -74,7 +86,10 @@ func startXDSCmd(ctx context.Context, _ *cli.Command) error {
 		defer otelShutdown(ctx, ll, shutdown)
 	}
 
-	routeReg := loadRegistry(ctx, ll)
+	sessionStore := loadSessionStore(ctx, ll)
+	oauthValid := loadOauthMngr(sessionStore, ll)
+
+	routeReg := loadRegistry(ctx, ll, oauthValid)
 
 	ll.Info("starting up holepunch envoy-xds...")
 

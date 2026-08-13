@@ -19,6 +19,7 @@ import (
 const (
 	routesSubject = "holepunch.routes"
 	routesStream  = "HOLEPUNCH_ROUTES"
+	sessionBucket = "holepunch_sessions"
 	tokenBucket   = "holepunch_tokens"
 )
 
@@ -68,6 +69,42 @@ func InitializeTokens(ctx context.Context, storageArgs args.Storage, ll logs.Log
 	if err != nil {
 		// If bucket exists, just bind to it
 		kv, err = sc.js.KeyValue(ctx, tokenBucket)
+		if err != nil {
+			return nil, fmt.Errorf("failed to bind to KeyValue store: %w", err)
+		}
+	}
+
+	sc.kv = kv
+
+	return sc, nil
+}
+
+// InitializeSessions starts the NATS connection and support key/value store session management.
+func InitializeSessions(
+	ctx context.Context,
+	storageArgs args.Storage,
+	ll logs.Logger,
+	sessionTTL time.Duration,
+) (KVStore, error) {
+	ll.Info("establishing session key/value store targeting " + cleanHostURL(storageArgs.NatsHost))
+
+	sc, err := connect(storageArgs, ll, routesSubject, routesStream)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create or retrieve a Key-Value store bucket
+	kv, err := sc.js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket:       sessionBucket,
+		Replicas:     storageArgs.NatsReplicas,
+		Storage:      jetstream.MemoryStorage,
+		MaxValueSize: storageArgs.MaxValueSize,
+		History:      1,
+		TTL:          sessionTTL,
+	})
+	if err != nil {
+		// If bucket exists, just bind to it
+		kv, err = sc.js.KeyValue(ctx, sessionBucket)
 		if err != nil {
 			return nil, fmt.Errorf("failed to bind to KeyValue store: %w", err)
 		}

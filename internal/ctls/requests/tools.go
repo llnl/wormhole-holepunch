@@ -1,11 +1,14 @@
 package requests
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"strconv"
 	"strings"
+
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 )
 
 // RequestDetails is a generalized mapping for either more direct http
@@ -31,9 +34,37 @@ type RequestDetails struct {
 	// Path use specified in request, rely on Envoy/proxy cleanup rules, by default no
 	// additional validation preformed.
 	Path string
+	// ClientIP is the requesting client's address as identified by IdentifyClientIP from
+	// the supplied Headers. Like Headers, this is user-influenceable input: it is only
+	// guaranteed to look like an IPv4/IPv6 address, not that it is accurate.
+	ClientIP string
 }
 
 //
+
+// IdentifyClientIP extracts a client IP address from the headers, and validates that
+// the result is a syntactically well-formed IPv4 or IPv6 address. It makes no claim
+// about whether the address is accurate.
+func IdentifyClientIP(headers map[string]string) string {
+	ip := headers[keys.XForwardedForHeader]
+	if ip == "" {
+		ip = headers[keys.XRealIPHeader]
+	}
+
+	if ip == "" {
+		return ""
+	}
+
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+
+	if net.ParseIP(ip) == nil {
+		return ""
+	}
+
+	return ip
+}
 
 func IdentifyURL(req *http.Request) string {
 	var fullURL string

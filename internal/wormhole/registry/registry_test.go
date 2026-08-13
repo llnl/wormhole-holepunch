@@ -15,9 +15,12 @@ import (
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
+	"github.com/llnl/wormhole-holepunch/test/mocks/mock_oauthmngr"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_requests"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_streams"
 )
@@ -106,7 +109,12 @@ func establishTestRouter(t *testing.T, ctrl *gomock.Controller) Router {
 	// Not currently required in a universal way across tests.
 	routePS := mock_streams.NewMockPubSub(ctrl)
 
-	got, err := Initialize(context.Background(), client, routePS, routeRegArgs, logs.InitializeDiscard())
+	ll := logs.InitializeDiscard()
+	oauthNone, _ := oauthmngr.Initialize(nil, ll, args.OauthManagement{
+		Strategy: "none",
+	})
+
+	got, err := Initialize(t.Context(), client, oauthNone, routePS, routeRegArgs, ll)
 	if err != nil {
 		t.FailNow()
 	}
@@ -150,6 +158,9 @@ func Test_Config_Initialize(t *testing.T) {
 	ll := logs.InitializeDiscard()
 	client := mock_requests.NewMockClient(ctrl)
 	routePS := mock_streams.NewMockPubSub(ctrl)
+	oauthNone, _ := oauthmngr.Initialize(nil, ll, args.OauthManagement{
+		Strategy: "none",
+	})
 
 	t.Run("valid static config", func(t *testing.T) {
 		routeRegArgs := args.RouteRegistry{
@@ -157,7 +168,7 @@ func Test_Config_Initialize(t *testing.T) {
 			StaticCfg:    "../../../test/data/static.yaml",
 		}
 
-		got, err := Initialize(ctx, client, routePS, routeRegArgs, ll)
+		got, err := Initialize(ctx, client, oauthNone, routePS, routeRegArgs, ll)
 
 		assert.NoError(t, err)
 		assert.GreaterOrEqual(t, len(got.(*internal).staticSrc), 2)
@@ -169,7 +180,7 @@ func Test_Config_Initialize(t *testing.T) {
 			StaticCfg:    t.TempDir() + "/missing.toml",
 		}
 
-		_, err := Initialize(ctx, client, routePS, routeRegArgs, ll)
+		_, err := Initialize(ctx, client, oauthNone, routePS, routeRegArgs, ll)
 
 		assert.Error(t, err)
 	})
@@ -179,9 +190,62 @@ func Test_Config_Initialize(t *testing.T) {
 			RegistryHost: "https ://example.com",
 		}
 
-		_, err := Initialize(ctx, client, routePS, routeRegArgs, ll)
+		_, err := Initialize(ctx, client, oauthNone, routePS, routeRegArgs, ll)
 
 		assert.Error(t, err)
+	})
+
+	t.Run("oauthmngr.Validator ExpandSources is observed", func(t *testing.T) {
+		routeRegArgs := args.RouteRegistry{
+			RegistryHost: "https://example.com",
+			StaticCfg:    "../../../test/data/static.yaml",
+		}
+
+		mockValidator := mock_oauthmngr.NewMockValidator(ctrl)
+
+		expanded := []wormhole.RawSource{
+			{
+				ID:          "oauth-expanded-route",
+				Source:      keys.URLString{Raw: "https://oauth.example.com", Key: "oauth.example.com"},
+				Destination: keys.URLString{Raw: "https://internal.example.com", Key: "internal.example.com"},
+				CommunityID: "oauth-community",
+			},
+		}
+
+		mockValidator.EXPECT().ExpandSources(gomock.Any()).DoAndReturn(
+			func(rawSources []wormhole.RawSource) []wormhole.RawSource {
+				ids := make([]string, 0, len(rawSources))
+				for _, rs := range rawSources {
+					ids = append(ids, rs.ID)
+				}
+
+				assert.ElementsMatch(t, []string{
+					"4ff69450-30eb-489b-bb90-15f25cd88c7d",
+					"43208434-df8d-4111-92ea-b29843e3f006",
+				}, ids)
+
+				return expanded
+			},
+		)
+
+		// convert() consults EstablishPreAuthFunc for every source ExpandSources hands
+		// back, in order to populate that route's preOauth check.
+		mockValidator.EXPECT().EstablishPreAuthFunc(expanded[0]).Return(
+			func(requests.RequestDetails) (bool, *errs.StatusError) {
+				return false, nil
+			},
+		)
+
+		got, err := Initialize(ctx, client, mockValidator, routePS, routeRegArgs, ll)
+		assert.NoError(t, err)
+
+		proxyCtls := got.(*internal).FetchProxyControls()
+		assert.Len(t, proxyCtls, 1)
+
+		ctl, ok := proxyCtls["oauth-expanded-route"]
+		assert.True(t, ok)
+		assert.Equal(t, "oauth-community", ctl.CommunityID)
+		assert.Equal(t, "https://oauth.example.com", ctl.Source.Raw)
 	})
 }
 
@@ -412,6 +476,89 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 			err := tr.AuthorizeProxy(t.Context(), ll, tt.req, tt.tknCtx)
 
 			tt.assertErr(t, err)
+		})
+	}
+}
+
+func Test_internal_PreAuth(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	ll := logs.InitializeDiscard()
+	client := mock_requests.NewMockClient(ctrl)
+	routePS := mock_streams.NewMockPubSub(ctrl)
+
+	mockValidator := mock_oauthmngr.NewMockValidator(ctrl)
+
+	mockValidator.EXPECT().ExpandSources(gomock.Any()).DoAndReturn(
+		func(rawSources []wormhole.RawSource) []wormhole.RawSource {
+			return rawSources
+		},
+	)
+
+	// Give each static route its own preOauth behavior so we can exercise the skip,
+	// deny, and continue-as-normal outcomes PreAuth is responsible for surfacing.
+	mockValidator.EXPECT().EstablishPreAuthFunc(gomock.Any()).DoAndReturn(
+		func(raw wormhole.RawSource) func(requests.RequestDetails) (bool, *errs.StatusError) {
+			switch raw.ID {
+			case "4ff69450-30eb-489b-bb90-15f25cd88c7d":
+				return func(requests.RequestDetails) (bool, *errs.StatusError) {
+					return true, nil
+				}
+			case "43208434-df8d-4111-92ea-b29843e3f006":
+				return func(requests.RequestDetails) (bool, *errs.StatusError) {
+					return false, errs.NewAuthErr(errors.New("blocked"), "blocked by strategy")
+				}
+			default:
+				return func(requests.RequestDetails) (bool, *errs.StatusError) {
+					return false, nil
+				}
+			}
+		},
+	).AnyTimes()
+
+	routeRegArgs := args.RouteRegistry{
+		RegistryHost: "https://example.com",
+		StaticCfg:    "../../../test/data/static.yaml",
+	}
+
+	tr, err := Initialize(t.Context(), client, mockValidator, routePS, routeRegArgs, ll)
+	assert.NoError(t, err)
+
+	tests := map[string]struct {
+		routeID   string
+		wantSkip  bool
+		assertErr func(*testing.T, *errs.StatusError)
+	}{
+		"skips remaining auth flow": {
+			routeID:  "4ff69450-30eb-489b-bb90-15f25cd88c7d",
+			wantSkip: true,
+			assertErr: func(t *testing.T, sErr *errs.StatusError) {
+				assert.Nil(t, sErr)
+			},
+		},
+		"rejected outright": {
+			routeID:  "43208434-df8d-4111-92ea-b29843e3f006",
+			wantSkip: false,
+			assertErr: func(t *testing.T, sErr *errs.StatusError) {
+				assert.ErrorContains(t, sErr, "blocked")
+			},
+		},
+		"unknown route": {
+			routeID:  uuid.Must(uuid.NewRandom()).String(),
+			wantSkip: false,
+			assertErr: func(t *testing.T, sErr *errs.StatusError) {
+				assert.ErrorContains(t, sErr, "no destination for")
+			},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			skip, sErr := tr.PreAuth(t.Context(), ll, requests.RequestDetails{RouteID: tt.routeID})
+
+			assert.Equal(t, tt.wantSkip, skip)
+			tt.assertErr(t, sErr)
 		})
 	}
 }

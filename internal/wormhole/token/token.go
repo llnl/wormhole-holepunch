@@ -78,11 +78,11 @@ func Initialize(
 	tokenURL, _ := url.Parse(tokenSvcArgs.TokenHost)
 
 	i := internal{
-		cipher:           cipher,
-		client:           requests.DefaultClient(ll),
-		kvStore:          kvStore,
-		ll:               ll,
-		oauth2Enabled:    tokenSvcArgs.OauthProxy != "",
+		cipher:  cipher,
+		client:  requests.DefaultClient(ll),
+		kvStore: kvStore,
+		ll:      ll,
+		// oauth2Enabled:    tokenSvcArgs.OauthProxy != "",
 		oauthExchangeURL: tokenURL.JoinPath(tokenSvcArgs.OauthExchangePath).String(),
 		tokenExchangeURL: tokenURL.JoinPath(tokenSvcArgs.TokenExchangePath).String(),
 		tokenSvcArgs:     tokenSvcArgs,
@@ -90,10 +90,12 @@ func Initialize(
 		validator:        rules.NewValidator(),
 	}
 
-	if i.oauth2Enabled {
-		i.oauth2RedirectURL = buildRedirectURL(tokenSvcArgs.OauthProxy)
-		i.oauth2AuthURL = buildAuthURL(tokenSvcArgs.OauthProxy)
-	}
+	/*
+		if i.oauth2Enabled {
+			i.oauth2RedirectURL = buildRedirectURL(tokenSvcArgs.OauthProxy)
+			i.oauth2AuthURL = buildAuthURL(tokenSvcArgs.OauthProxy)
+		}
+	*/
 
 	return i
 }

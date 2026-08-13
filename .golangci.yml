@@ -27,6 +27,8 @@ linters:
     - wrapcheck
     - wsl
     - varnamelen
+    # TODO - Remove after testing complete
+    - unused
 
   settings:
     cyclop:

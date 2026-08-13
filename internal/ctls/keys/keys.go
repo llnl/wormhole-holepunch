@@ -25,6 +25,8 @@ const (
 	XForwardHostHeader           = "x-forwarded-host"
 	XForwardProtoHeader          = "x-forwarded-proto"
 	XForwardURIHeader            = "x-forwarded-uri"
+	XForwardedForHeader          = "x-forwarded-for"
+	XRealIPHeader                = "x-real-ip"
 	WormholeHostHeader           = "x-wormhole-host"
 	WormholeSchemeHeader         = "x-wormhole-scheme"
 )

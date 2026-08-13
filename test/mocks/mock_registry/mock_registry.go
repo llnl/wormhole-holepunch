@@ -86,6 +86,21 @@ func (mr *MockRouterMockRecorder) FetchProxyControls() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchProxyControls", reflect.TypeOf((*MockRouter)(nil).FetchProxyControls))
 }
 
+// PreAuth mocks base method.
+func (m *MockRouter) PreAuth(ctx context.Context, ll logs.Logger, req requests.RequestDetails) (bool, *errs.StatusError) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PreAuth", ctx, ll, req)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(*errs.StatusError)
+	return ret0, ret1
+}
+
+// PreAuth indicates an expected call of PreAuth.
+func (mr *MockRouterMockRecorder) PreAuth(ctx, ll, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreAuth", reflect.TypeOf((*MockRouter)(nil).PreAuth), ctx, ll, req)
+}
+
 // PublishSources mocks base method.
 func (m *MockRouter) PublishSources(ctx context.Context) error {
 	m.ctrl.T.Helper()

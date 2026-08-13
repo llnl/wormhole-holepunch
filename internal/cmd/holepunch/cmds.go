@@ -17,6 +17,7 @@ var (
 	cacheArgs    = &args.Cacher{}
 	globalArgs   = &args.GlobalSettings{}
 	loggingArgs  = &args.Logging{}
+	oauthArgs    = &args.OauthManagement{}
 	routeRegArgs = &args.RouteRegistry{}
 	storageArgs  = &args.Storage{}
 	tokenSvcArgs = &args.TokenService{}
@@ -47,6 +48,7 @@ func Tasks() *cli.Command {
 func xdsCommand() *cli.Command {
 	f := args.NewBuilder().
 		LoggingFlags(loggingArgs, "holepunch-xds").
+		OauthManagementFlags(oauthArgs).
 		RouteRegistryFlags(routeRegArgs).
 		StorageFlags(storageArgs).
 		WebServerFlags(webArgs, defaultXDSAddr, true).
@@ -65,6 +67,7 @@ func xdsCommand() *cli.Command {
 func authCmd() *cli.Command {
 	f := args.NewBuilder().
 		LoggingFlags(loggingArgs, "holepunch-auth").
+		OauthManagementFlags(oauthArgs).
 		RouteRegistryFlags(routeRegArgs).
 		StorageFlags(storageArgs).
 		WebServerFlags(webArgs, defaultAuthAddr, true).
@@ -82,6 +85,7 @@ func authCmd() *cli.Command {
 func adminCmd() *cli.Command {
 	f := args.NewBuilder().
 		LoggingFlags(loggingArgs, "holepunch-admin").
+		OauthManagementFlags(oauthArgs).
 		RouteRegistryFlags(routeRegArgs).
 		StorageFlags(storageArgs).
 		WebServerFlags(webArgs, defaultAdminAddr, false).
@@ -98,6 +102,7 @@ func adminCmd() *cli.Command {
 func cacherCmd() *cli.Command {
 	f := args.NewBuilder().
 		LoggingFlags(loggingArgs, "").
+		OauthManagementFlags(oauthArgs).
 		StorageFlags(storageArgs).
 		RouteRegistryFlags(routeRegArgs).
 		CacherFlags(cacheArgs)
