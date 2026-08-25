@@ -9,9 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"net/http"
+	"strings"
 
 	"google.golang.org/grpc/codes"
 
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 )
 
@@ -32,41 +36,71 @@ type StatusError struct {
 	internal error
 	code     int32
 	url      string
+	headers  map[string]string
 }
 
+// StatusErrOption configures optional, non-required attributes on a
+// *StatusError at creation time.
+type StatusErrOption func(*StatusError)
+
+// WithHeaders adds the given key/value pairs to the set of headers carried
+// alongside the error.
+func WithHeaders(headers map[string]string) StatusErrOption {
+	return func(r *StatusError) {
+		if r.headers == nil {
+			r.headers = make(map[string]string, len(headers))
+		}
+
+		for k, v := range headers {
+			r.headers[strings.ToLower(k)] = v
+		}
+	}
+}
+
+// WithSetCookie is a helper around WithHeaders that populates a "set-cookie"
+// header from the provided cookie.
+func WithSetCookie(cookie *http.Cookie) StatusErrOption {
+	return WithHeaders(map[string]string{keys.SetCookieHeader: cookie.String()})
+}
+
+//
+
 // NewAuthErr generates a 401 error.
-func NewAuthErr(err error, userDetails string) *StatusError {
-	return newStatusError(AuthErr, err, userDetails, "")
+func NewAuthErr(err error, userDetails string, opts ...StatusErrOption) *StatusError {
+	return newStatusError(AuthErr, err, userDetails, "", opts...)
 }
 
 // NewNotFoundErr generates a 404 error.
-func NewNotFoundErr(err error) *StatusError {
-	return newStatusError(NotFoundErr, err, "", "")
+func NewNotFoundErr(err error, opts ...StatusErrOption) *StatusError {
+	return newStatusError(NotFoundErr, err, "", "", opts...)
 }
 
 // NewBadReqErr generates a 400 error.
-func NewBadReqErr(err error, userDetails string) *StatusError {
-	return newStatusError(BadRequestErr, err, userDetails, "")
+func NewBadReqErr(err error, userDetails string, opts ...StatusErrOption) *StatusError {
+	return newStatusError(BadRequestErr, err, userDetails, "", opts...)
 }
 
 // NewInternalErr generates a 500 error.
-func NewInternalErr(err error, userDetails string) *StatusError {
-	return newStatusError(InternalErr, err, userDetails, "")
+func NewInternalErr(err error, userDetails string, opts ...StatusErrOption) *StatusError {
+	return newStatusError(InternalErr, err, userDetails, "", opts...)
 }
 
 // NewRedirectErr generates a redirect.
-func NewRedirectErr(url string) *StatusError {
-	return newStatusError(RedirectErr, errors.New("redirect required"), "", url)
+func NewRedirectErr(url string, opts ...StatusErrOption) *StatusError {
+	return newStatusError(RedirectErr, errors.New("redirect required"), "", url, opts...)
 }
 
+// SimpleAuthErr generate a 404 error with generic user message.
 func SimpleAuthErr(err error) *StatusError {
 	return newStatusError(AuthErr, err, "", "")
 }
 
+// SimpleBadReqErr generate a 400 error with generic user message.
 func SimpleBadReqErr(err error) *StatusError {
 	return newStatusError(BadRequestErr, err, "", "")
 }
 
+// SimpleInternalErr generate a 500 error with generic user message.
 func SimpleInternalErr(err error) *StatusError {
 	return newStatusError(InternalErr, err, "", "")
 }
@@ -77,11 +111,14 @@ func (r *StatusError) Body() string {
 	resp := struct {
 		Code    int      `json:"code"`
 		Message string   `json:"message"`
-		Details []string `json:"details"`
+		Details []string `json:"details,omitempty"`
 	}{
 		Code:    int(r.code),
 		Message: r.errMsg,
-		Details: []string{r.details},
+	}
+
+	if r.details != "" {
+		resp.Details = []string{r.details}
 	}
 
 	b, err := json.Marshal(resp)
@@ -112,10 +149,25 @@ func (r *StatusError) ExpandDetails(d string) {
 	}
 }
 
-func (r *StatusError) ExpandInternal(err error) {
-	if err != nil {
-		r.internal = fmt.Errorf("%w: %w", err, r.internal)
+func (r *StatusError) Headers() map[string]string {
+	if r.headers == nil {
+		return nil
 	}
+
+	return maps.Clone(r.headers)
+}
+
+func (r *StatusError) ExpandInternal(err error) {
+	if err == nil {
+		return
+	}
+
+	if r.internal == nil {
+		r.internal = err
+		return
+	}
+
+	r.internal = fmt.Errorf("%w: %w", err, r.internal)
 }
 
 func (r *StatusError) LogError(ctx context.Context, ll logs.Logger) {
@@ -149,8 +201,14 @@ func (r *StatusError) RedirectRequired() (bool, string) {
 
 //
 
-func newStatusError(errType ErrorType, internal error, userDetails string, url string) *StatusError {
-	return &StatusError{
+func newStatusError(
+	errType ErrorType,
+	internal error,
+	userDetails string,
+	url string,
+	opts ...StatusErrOption,
+) *StatusError {
+	r := &StatusError{
 		details:  userDetails,
 		errMsg:   errType.errorMsg(),
 		errType:  errType,
@@ -158,6 +216,12 @@ func newStatusError(errType ErrorType, internal error, userDetails string, url s
 		code:     errType.code(),
 		url:      url,
 	}
+
+	for _, opt := range opts {
+		opt(r)
+	}
+
+	return r
 }
 
 func (e ErrorType) errorMsg() string {

@@ -1,15 +1,31 @@
 package envoy
 
 import (
+	"errors"
 	"testing"
 
 	envoy_core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	auth "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 )
+
+// findHeader returns the HeaderValueOption for the given key, or nil if absent.
+func findHeader(headers []*envoy_core.HeaderValueOption, key string) *envoy_core.HeaderValueOption {
+	for _, h := range headers {
+		if h.GetHeader().GetKey() == key {
+			return h
+		}
+	}
+
+	return nil
+}
 
 func makeCheckRequest(headers, ctxExt map[string]string) *auth.CheckRequest {
 	return &auth.CheckRequest{
@@ -115,5 +131,40 @@ func Test_authServer_establishReqDetails(t *testing.T) {
 		got := s.establishReqDetails(req)
 
 		assert.Equal(t, "api.example.com", got.Host)
+	})
+}
+
+func Test_authServer_denyRequest(t *testing.T) {
+	t.Run("includes statusError headers", func(t *testing.T) {
+		s := &authServer{}
+
+		sErr := errs.NewAuthErr(errors.New("boom"), "denied", errs.WithHeaders(map[string]string{
+			"x-retry-after": "30",
+		}))
+
+		resp := s.denyRequest(t.Context(), sErr, logs.InitializeDiscard())
+
+		got := findHeader(resp.GetDeniedResponse().GetHeaders(), "x-retry-after")
+
+		require.NotNil(t, got)
+		assert.Equal(t, "30", got.GetHeader().GetValue())
+	})
+}
+
+func Test_authServer_redirectRequest(t *testing.T) {
+
+	t.Run("includes statusError headers", func(t *testing.T) {
+		s := &authServer{}
+
+		sErr := errs.NewRedirectErr("https://login.example.com", errs.WithHeaders(map[string]string{
+			keys.SetCookieHeader: "session=abc123",
+		}))
+
+		resp := s.redirectRequest(t.Context(), requests.RequestDetails{}, sErr, logs.InitializeDiscard())
+
+		got := findHeader(resp.GetDeniedResponse().GetHeaders(), keys.SetCookieHeader)
+
+		require.NotNil(t, got)
+		assert.Equal(t, "session=abc123", got.GetHeader().GetValue())
 	})
 }

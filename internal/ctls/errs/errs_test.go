@@ -2,12 +2,14 @@ package errs
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_logs"
 )
 
@@ -54,6 +56,21 @@ func Test_AuthErr(t *testing.T) {
 
 		assert.Contains(t, err.Error(), "root cause B: root cause A")
 	})
+
+	t.Run("ExpandInternal - nil err is a no-op", func(t *testing.T) {
+		err := NewAuthErr(internalErr, "Internal failure")
+		err.ExpandInternal(nil)
+
+		assert.Equal(t, "Unauthorized: authentication failed", err.Error())
+	})
+
+	t.Run("ExpandInternal - starting from a nil internal error", func(t *testing.T) {
+		err := SimpleAuthErr(nil)
+		err.ExpandInternal(errors.New("root cause"))
+
+		assert.Equal(t, "Unauthorized: root cause", err.Error())
+		assert.NotContains(t, err.Error(), "%!w")
+	})
 }
 
 func Test_NotFoundErr(t *testing.T) {
@@ -64,6 +81,12 @@ func Test_NotFoundErr(t *testing.T) {
 
 		assert.Equal(t, int32(codes.NotFound), err.Code())
 		assert.Contains(t, err.Error(), "Not Found: resource not found")
+	})
+
+	t.Run("NewNotFoundErr - no details omits the details field", func(t *testing.T) {
+		err := NewNotFoundErr(internalErr)
+
+		assert.JSONEq(t, `{"code":5,"message":"Not Found"}`, err.Body())
 	})
 }
 
@@ -124,6 +147,108 @@ func Test_RedirectErr(t *testing.T) {
 		assert.True(t, isRedirect)
 		assert.Equal(t, "http://localhost/login", url)
 	})
+}
+
+func Test_StatusErrOptions(t *testing.T) {
+	internalErr := errors.New("boom")
+
+	t.Run("no options - Headers is nil", func(t *testing.T) {
+		err := NewInternalErr(internalErr, "")
+
+		assert.Nil(t, err.Headers())
+	})
+
+	t.Run("WithHeaders sets the provided headers", func(t *testing.T) {
+		err := NewInternalErr(internalErr, "", WithHeaders(map[string]string{
+			"x-retry-after": "30",
+		}))
+
+		assert.Equal(t, map[string]string{"x-retry-after": "30"}, err.Headers())
+	})
+
+	t.Run("WithHeaders merges across multiple calls", func(t *testing.T) {
+		err := NewInternalErr(internalErr, "",
+			WithHeaders(map[string]string{"a": "1"}),
+			WithHeaders(map[string]string{"b": "2"}),
+		)
+
+		assert.Equal(t, map[string]string{"a": "1", "b": "2"}, err.Headers())
+	})
+
+	t.Run("WithHeaders - later call overrides earlier value for same key", func(t *testing.T) {
+		err := NewInternalErr(internalErr, "",
+			WithHeaders(map[string]string{"a": "1"}),
+			WithHeaders(map[string]string{"a": "2"}),
+		)
+
+		assert.Equal(t, map[string]string{"a": "2"}, err.Headers())
+	})
+
+	t.Run("WithHeaders normalizes keys to lower case, overriding across case", func(t *testing.T) {
+		err := NewInternalErr(internalErr, "",
+			WithHeaders(map[string]string{"X-Foo": "1"}),
+			WithHeaders(map[string]string{"x-foo": "2"}),
+		)
+
+		assert.Equal(t, map[string]string{"x-foo": "2"}, err.Headers())
+	})
+
+	t.Run("WithSetCookie sets the set-cookie header from the cookie", func(t *testing.T) {
+		cookie := &http.Cookie{Name: "session", Value: "abc123"}
+
+		err := NewAuthErr(internalErr, "", WithSetCookie(cookie))
+
+		assert.Equal(t, map[string]string{keys.SetCookieHeader: cookie.String()}, err.Headers())
+	})
+
+	t.Run("Headers returns a copy - mutating it does not affect the error", func(t *testing.T) {
+		err := NewInternalErr(internalErr, "", WithHeaders(map[string]string{"a": "1"}))
+
+		got := err.Headers()
+		got["a"] = "mutated"
+		got["b"] = "injected"
+
+		assert.Equal(t, map[string]string{"a": "1"}, err.Headers())
+	})
+
+	t.Run("WithSetCookie combines with WithHeaders", func(t *testing.T) {
+		cookie := &http.Cookie{Name: "session", Value: "abc123", MaxAge: -1}
+
+		err := NewAuthErr(internalErr, "",
+			WithHeaders(map[string]string{"x-foo": "bar"}),
+			WithSetCookie(cookie),
+		)
+
+		assert.Equal(t, map[string]string{
+			"x-foo":              "bar",
+			keys.SetCookieHeader: cookie.String(),
+		}, err.Headers())
+	})
+}
+
+func Test_NewErrOptionsPlumbing(t *testing.T) {
+	internalErr := errors.New("boom")
+	headers := map[string]string{"x-test": "value"}
+
+	// Every New*Err constructor should forward its variadic
+	// StatusErrOption values through to the resulting *StatusError.
+	constructors := map[string]func(opts ...StatusErrOption) *StatusError{
+		"NewAuthErr":     func(opts ...StatusErrOption) *StatusError { return NewAuthErr(internalErr, "", opts...) },
+		"NewNotFoundErr": func(opts ...StatusErrOption) *StatusError { return NewNotFoundErr(internalErr, opts...) },
+		"NewBadReqErr":   func(opts ...StatusErrOption) *StatusError { return NewBadReqErr(internalErr, "", opts...) },
+		"NewInternalErr": func(opts ...StatusErrOption) *StatusError { return NewInternalErr(internalErr, "", opts...) },
+		"NewRedirectErr": func(opts ...StatusErrOption) *StatusError {
+			return NewRedirectErr("http://localhost/login", opts...)
+		},
+	}
+
+	for name, newErr := range constructors {
+		t.Run(name, func(t *testing.T) {
+			err := newErr(WithHeaders(headers))
+
+			assert.Equal(t, headers, err.Headers())
+		})
+	}
 }
 
 func Test_LogError(t *testing.T) {
