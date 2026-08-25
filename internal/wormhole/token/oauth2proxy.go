@@ -1,5 +1,6 @@
 package token
 
+/*
 import (
 	"context"
 	"errors"
@@ -111,3 +112,4 @@ func mapKeys(m map[string]string) string {
 
 	return strings.Join(keys, ", ")
 }
+*/

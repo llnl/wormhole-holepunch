@@ -65,3 +65,10 @@ func (*noneManager) ValidateCookies(
 ) (Result, *errs.StatusError) {
 	return Result{CookieHeader: details.Headers[keys.CookieHeader]}, errs.SimpleAuthErr(errOAuthNotConfigured)
 }
+
+// NewAuthRedirectErr returns an error since OAuth is not configured.
+func (*noneManager) NewAuthRedirectErr(
+	_ requests.RequestDetails,
+) *errs.StatusError {
+	return errs.SimpleInternalErr(errOAuthNotConfigured)
+}

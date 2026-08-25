@@ -102,6 +102,13 @@ type Validator interface {
 		ctx context.Context,
 		details requests.RequestDetails,
 	) (Result, *errs.StatusError)
+
+	// NewAuthRedirectErr builds a ready-to-return errs.NewRedirectErr that sends the client
+	// back through a fresh OAuth flow for details, for use outside ValidateCookies when an
+	// unexpected error means re-authentication should be forced.
+	NewAuthRedirectErr(
+		details requests.RequestDetails,
+	) *errs.StatusError
 }
 
 func Initialize(
@@ -118,7 +125,7 @@ func Initialize(
 	case StrategyOauth2ProxyReverse:
 		ll.Infof("initializing OAuth: strategy=%s", StrategyOauth2ProxyReverse)
 
-		validator, err := newOauth2ProxyReverseManager(ll, oauthArgs)
+		validator, err := newReverseManager(ll, oauthArgs)
 		if err != nil {
 			return nil, err
 		}

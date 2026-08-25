@@ -15,22 +15,21 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
 )
 
-// oauth2ProxyReverseManager implements the Validator interface for the reverse proxy strategy.
-// In this strategy, oauth2-proxy is configured with reverse_proxy=true and exists behind Envoy.
-// Holepunch ensures routes prefixed with /-/wormhole/oauth2 are correctly routed to oauth2-proxy,
-// allowing it to establish session cookies for each individual subdomain.
-type oauth2ProxyReverseManager struct {
+type reverseManager struct {
 	ll               logs.Logger
 	proxyCookieName  string
 	internalProxyURL string
 }
 
-func newOauth2ProxyReverseManager(ll logs.Logger, oauthArgs args.OauthManagement) (*oauth2ProxyReverseManager, error) {
+func newReverseManager(
+	ll logs.Logger,
+	oauthArgs args.OauthManagement,
+) (*reverseManager, error) {
 	if oauthArgs.InternalProxyURL == "" {
-		return nil, errors.New("oauth2-proxy upstream URL is required for reverse proxy strategy")
+		return nil, errors.New("oauth2-proxy upstream URL is required")
 	}
 
-	return &oauth2ProxyReverseManager{
+	return &reverseManager{
 		ll:               ll,
 		proxyCookieName:  oauthArgs.ProxyCookieName,
 		internalProxyURL: oauthArgs.InternalProxyURL,
@@ -41,7 +40,7 @@ func newOauth2ProxyReverseManager(ll logs.Logger, oauthArgs args.OauthManagement
 
 // ExpandSources adds the oauth2-proxy routes to the raw sources. These routes are prefixed
 // with /-/wormhole/oauth2 and will be routed to the oauth2-proxy upstream.
-func (o *oauth2ProxyReverseManager) ExpandSources(rawSources []wormhole.RawSource) []wormhole.RawSource {
+func (r *reverseManager) ExpandSources(rawSources []wormhole.RawSource) []wormhole.RawSource {
 	expanded := make([]wormhole.RawSource, 0, len(rawSources))
 	oauth2Routes := make(map[string]bool)
 
@@ -68,8 +67,8 @@ func (o *oauth2ProxyReverseManager) ExpandSources(rawSources []wormhole.RawSourc
 
 		oauth2Source := wormhole.RawSource{
 			ID:          src.ID + "-oauth2-proxy",
-			Source:      newURLString(fmt.Sprintf("%s://%s/-/wormhole%s", scheme, host, oauth2ProxyBasePath)),
-			Destination: newURLString(o.internalProxyURL + oauth2ProxyBasePath),
+			Source:      keys.NewURLString(fmt.Sprintf("%s://%s/-/wormhole%s", scheme, host, oauth2ProxyBasePath)),
+			Destination: keys.NewURLString(r.internalProxyURL + oauth2ProxyBasePath),
 			CommunityID: src.CommunityID,
 		}
 
@@ -82,7 +81,7 @@ func (o *oauth2ProxyReverseManager) ExpandSources(rawSources []wormhole.RawSourc
 // EstablishPreAuthentication returns a function that checks if the request is for an oauth2-proxy
 // endpoint. If so, it allows the request to skip Holepunch auth and be handled directly by
 // oauth2-proxy upstream.
-func (o *oauth2ProxyReverseManager) EstablishPreAuthentication(
+func (r *reverseManager) EstablishPreAuthentication(
 	source wormhole.RawSource,
 ) func(requests.RequestDetails) (bool, *errs.StatusError) {
 	return func(details requests.RequestDetails) (bool, *errs.StatusError) {
@@ -95,7 +94,7 @@ func (o *oauth2ProxyReverseManager) EstablishPreAuthentication(
 }
 
 // EstablishPostAuthentication is a no-op in the reverse proxy strategy.
-func (o *oauth2ProxyReverseManager) EstablishPostAuthentication(
+func (r *reverseManager) EstablishPostAuthentication(
 	source wormhole.RawSource,
 ) func(context.Context, requests.RequestDetails) *errs.StatusError {
 	return func(_ context.Context, _ requests.RequestDetails) *errs.StatusError {
@@ -106,7 +105,7 @@ func (o *oauth2ProxyReverseManager) EstablishPostAuthentication(
 // PrepareAuthRedirect creates a redirect URL to oauth2-proxy's /oauth2/start endpoint
 // with the proposed redirect as the rd parameter. In reverse proxy mode, oauth2-proxy
 // handles the entire OAuth flow and establishes cookies directly on the subdomain.
-func (o *oauth2ProxyReverseManager) PrepareAuthRedirect(
+func (r *reverseManager) PrepareAuthRedirect(
 	proposedRedirect string, details requests.RequestDetails,
 ) (string, *errs.StatusError) {
 	scheme := details.Scheme
@@ -128,18 +127,31 @@ func (o *oauth2ProxyReverseManager) PrepareAuthRedirect(
 // ValidateCookies extracts the oauth2-proxy session cookie, identified by the configured
 // proxy cookie name, from the request's Cookie header; oauth2-proxy sets it directly on
 // each subdomain in reverse proxy mode. Result.CookieHeader has that cookie stripped.
-func (o *oauth2ProxyReverseManager) ValidateCookies(
+func (r *reverseManager) ValidateCookies(
 	ctx context.Context, details requests.RequestDetails,
 ) (Result, *errs.StatusError) {
 	cookieHeader := details.Headers[keys.CookieHeader]
 
-	sessionCookieValue := extractCookie(cookieHeader, o.proxyCookieName)
+	sessionCookieValue := extractCookie(cookieHeader, r.proxyCookieName)
 	if sessionCookieValue == "" {
 		return Result{}, errs.SimpleAuthErr(errors.New("oauth2-proxy session cookie not found"))
 	}
 
 	return Result{
 		AccessToken:  sessionCookieValue,
-		CookieHeader: removeCookie(cookieHeader, o.proxyCookieName),
+		CookieHeader: removeCookie(cookieHeader, r.proxyCookieName),
 	}, nil
+}
+
+// NewAuthRedirectErr builds a redirect error back through oauth2-proxy's /oauth2/start
+// endpoint, targeting the request's own URL via PrepareAuthRedirect.
+func (r *reverseManager) NewAuthRedirectErr(
+	details requests.RequestDetails,
+) *errs.StatusError {
+	redirectURL, sErr := r.PrepareAuthRedirect(targetURLFromDetails(details), details)
+	if sErr != nil {
+		return sErr
+	}
+
+	return errs.NewRedirectErr(redirectURL)
 }

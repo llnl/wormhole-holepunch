@@ -28,7 +28,7 @@ func startAuthCmd(ctx context.Context, _ *cli.Command) error {
 	sessionStore := loadSessionStore(ctx, ll)
 	oauthValid := loadOauthMngr(sessionStore, ll)
 
-	tokenAuth := loadAuthenticator(tokenStore, ll)
+	tokenAuth := loadAuthenticator(tokenStore, ll, oauthValid)
 	routeReg := loadRegistry(ctx, ll, oauthValid)
 
 	ll.Info("starting up holepunch envoy-auth...")
@@ -51,7 +51,7 @@ func startAdminCmd(ctx context.Context, _ *cli.Command) error {
 	sessionStore := loadSessionStore(ctx, ll)
 	oauthValid := loadOauthMngr(sessionStore, ll)
 
-	tokenAuth := loadAuthenticator(tokenStore, ll)
+	tokenAuth := loadAuthenticator(tokenStore, ll, oauthValid)
 	routeReg := loadRegistry(ctx, ll, oauthValid)
 
 	go manageRegistryRefresh(ctx, routeReg)
@@ -69,7 +69,7 @@ func startCacherCmd(ctx context.Context, _ *cli.Command) error {
 	sessionStore := loadSessionStore(ctx, ll)
 	oauthValid := loadOauthMngr(sessionStore, ll)
 
-	tokenAuth := loadAuthenticator(tokenStore, ll)
+	tokenAuth := loadAuthenticator(tokenStore, ll, oauthValid)
 	routeReg := loadRegistry(ctx, ll, oauthValid)
 
 	ll.Info("starting up holepunch cacher...")

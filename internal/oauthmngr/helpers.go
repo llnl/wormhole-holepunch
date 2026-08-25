@@ -4,8 +4,25 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 )
+
+// targetURLFromDetails reconstructs the originally-requested URL (scheme, host, path) from
+// details, for use as the destination to return to once an OAuth flow completes.
+func targetURLFromDetails(details requests.RequestDetails) string {
+	scheme := details.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+
+	target := url.URL{
+		Scheme: scheme,
+		Host:   details.Host,
+		Path:   details.Path,
+	}
+
+	return target.String()
+}
 
 // extractCookie parses the Cookie header and extracts the value of a specific cookie by name.
 // Returns empty string if the cookie is not found.
@@ -29,8 +46,7 @@ func extractCookie(cookieHeader, cookieName string) string {
 }
 
 // removeCookie returns the Cookie header with the named cookie removed, leaving the
-// remaining "name=value" pairs intact. Used to strip a Holepunch/oauth2-proxy-owned
-// cookie before a request's Cookie header is forwarded upstream.
+// remaining "name=value" pairs intact.
 func removeCookie(cookieHeader, cookieName string) string {
 	if cookieHeader == "" {
 		return ""
@@ -53,34 +69,4 @@ func removeCookie(cookieHeader, cookieName string) string {
 	}
 
 	return strings.Join(kept, "; ")
-}
-
-// newURLString creates a URLString from a raw URL string.
-// This is a helper to programmatically construct URLString values
-// since URLString is normally unmarshaled from JSON.
-func newURLString(rawURL string) keys.URLString {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return keys.URLString{}
-	}
-
-	return keys.URLString{
-		Raw: rawURL,
-		Key: normalizeURLKey(parsed),
-		URL: parsed,
-	}
-}
-
-// normalizeURLKey creates a normalized key from a parsed URL (hostname without www prefix)
-func normalizeURLKey(parsed *url.URL) string {
-	hostname := parsed.Hostname()
-	if hostname == "" {
-		return parsed.String()
-	}
-
-	if len(hostname) > 4 && hostname[:4] == "www." {
-		return hostname[4:]
-	}
-
-	return hostname
 }

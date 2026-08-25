@@ -86,6 +86,20 @@ func (mr *MockValidatorMockRecorder) ExpandSources(rawSources any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExpandSources", reflect.TypeOf((*MockValidator)(nil).ExpandSources), rawSources)
 }
 
+// NewAuthRedirectErr mocks base method.
+func (m *MockValidator) NewAuthRedirectErr(details requests.RequestDetails) *errs.StatusError {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewAuthRedirectErr", details)
+	ret0, _ := ret[0].(*errs.StatusError)
+	return ret0
+}
+
+// NewAuthRedirectErr indicates an expected call of NewAuthRedirectErr.
+func (mr *MockValidatorMockRecorder) NewAuthRedirectErr(details any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewAuthRedirectErr", reflect.TypeOf((*MockValidator)(nil).NewAuthRedirectErr), details)
+}
+
 // PrepareAuthRedirect mocks base method.
 func (m *MockValidator) PrepareAuthRedirect(proposedRedirect string, details requests.RequestDetails) (string, *errs.StatusError) {
 	m.ctrl.T.Helper()

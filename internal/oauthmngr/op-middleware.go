@@ -89,8 +89,8 @@ func (o *oauth2ProxyMiddlewareManager) ExpandSources(rawSources []wormhole.RawSo
 
 				oauth2Source := wormhole.RawSource{
 					ID:          src.ID + "-oauth2-proxy",
-					Source:      newURLString(fmt.Sprintf("%s://%s/-/wormhole%s", scheme, host, oauth2ProxyBasePath)),
-					Destination: newURLString(o.internalProxyURL + oauth2ProxyBasePath),
+					Source:      keys.NewURLString(fmt.Sprintf("%s://%s/-/wormhole%s", scheme, host, oauth2ProxyBasePath)),
+					Destination: keys.NewURLString(o.internalProxyURL + oauth2ProxyBasePath),
 					CommunityID: src.CommunityID,
 				}
 				expanded = append(expanded, oauth2Source)
@@ -103,8 +103,8 @@ func (o *oauth2ProxyMiddlewareManager) ExpandSources(rawSources []wormhole.RawSo
 
 			callbackSource := wormhole.RawSource{
 				ID:          src.ID + "-oauth-callback",
-				Source:      newURLString(fmt.Sprintf("%s://%s/-/wormhole%s", scheme, host, managerPath)),
-				Destination: newURLString(fmt.Sprintf("%s://%s/-/wormhole%s", scheme, host, managerPath)),
+				Source:      keys.NewURLString(fmt.Sprintf("%s://%s/-/wormhole%s", scheme, host, managerPath)),
+				Destination: keys.NewURLString(fmt.Sprintf("%s://%s/-/wormhole%s", scheme, host, managerPath)),
 				CommunityID: src.CommunityID,
 			}
 			expanded = append(expanded, callbackSource)
@@ -244,6 +244,19 @@ func (o *oauth2ProxyMiddlewareManager) ValidateCookies(
 		AccessToken:  sessionCookieValue,
 		CookieHeader: removeCookie(cookieHeader, o.cookieName),
 	}, nil
+}
+
+// NewAuthRedirectErr builds a redirect error back through the nonce-bound auth-domain flow,
+// targeting the request's own URL via PrepareAuthRedirect.
+func (o *oauth2ProxyMiddlewareManager) NewAuthRedirectErr(
+	details requests.RequestDetails,
+) *errs.StatusError {
+	redirectURL, sErr := o.PrepareAuthRedirect(targetURLFromDetails(details), details)
+	if sErr != nil {
+		return sErr
+	}
+
+	return errs.NewRedirectErr(redirectURL)
 }
 
 //

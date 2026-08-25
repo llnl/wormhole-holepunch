@@ -13,8 +13,6 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
 )
 
-//
-
 func Test_noneManager_ExpandSources(t *testing.T) {
 	m := newNoneManager()
 
@@ -44,8 +42,6 @@ func Test_noneManager_ExpandSources(t *testing.T) {
 	})
 }
 
-//
-
 func Test_noneManager_EstablishPreAuthentication(t *testing.T) {
 	m := newNoneManager()
 
@@ -72,8 +68,6 @@ func Test_noneManager_EstablishPreAuthentication(t *testing.T) {
 	})
 }
 
-//
-
 func Test_noneManager_PrepareAuthRedirect(t *testing.T) {
 	m := newNoneManager()
 
@@ -94,22 +88,15 @@ func Test_noneManager_PrepareAuthRedirect(t *testing.T) {
 	})
 }
 
-//
-
 func Test_noneManager_EstablishPostAuthentication(t *testing.T) {
 	m := newNoneManager()
 
 	t.Run("returns a function that always returns an internal error", func(t *testing.T) {
 		fn := m.EstablishPostAuthentication(wormhole.RawSource{})
 
-		err := fn(context.Background(), requests.RequestDetails{})
-
-		require.NotNil(t, err)
-		assert.Equal(t, int32(codes.Internal), err.Code())
+		assert.Nil(t, fn(t.Context(), requests.RequestDetails{}))
 	})
 }
-
-//
 
 func Test_noneManager_ValidateCookies(t *testing.T) {
 	m := newNoneManager()

@@ -16,13 +16,17 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/token"
 )
 
-func loadAuthenticator(kvStore streams.KVStore, ll logs.Logger) token.Authenticator {
+func loadAuthenticator(
+	kvStore streams.KVStore,
+	ll logs.Logger,
+	oauthValid oauthmngr.Validator,
+) token.Authenticator {
 	cipher, err := aescipher.New(args.GetValueOrFile(tokenSvcArgs.TokenCipherKey))
 	if err != nil {
 		log.Fatalf("failed to load aescipher: %s", err.Error())
 	}
 
-	return token.Initialize(cipher, kvStore, ll, *tokenSvcArgs)
+	return token.Initialize(cipher, kvStore, ll, oauthValid, *tokenSvcArgs)
 }
 
 func loadLogging() logs.Logger {

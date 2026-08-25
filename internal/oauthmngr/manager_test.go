@@ -32,8 +32,8 @@ func Test_Validator_InterfaceCompliance(t *testing.T) {
 		var _ Validator = (*noneManager)(nil)
 	})
 
-	t.Run("oauth2ProxyReverseManager implements Validator interface", func(t *testing.T) {
-		var _ Validator = (*oauth2ProxyReverseManager)(nil)
+	t.Run("reverseManager implements Validator interface", func(t *testing.T) {
+		var _ Validator = (*reverseManager)(nil)
 	})
 
 	t.Run("oauth2ProxyMiddlewareManager implements Validator interface", func(t *testing.T) {
@@ -79,7 +79,7 @@ func Test_Initialize(t *testing.T) {
 
 		require.NoError(t, err)
 		require.NotNil(t, validator)
-		assert.IsType(t, &oauth2ProxyReverseManager{}, validator)
+		assert.IsType(t, &reverseManager{}, validator)
 	})
 
 	t.Run("returns error for oauth2-proxy-reverse when proxy upstream URL is missing", func(t *testing.T) {

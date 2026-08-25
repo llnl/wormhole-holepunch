@@ -109,14 +109,7 @@ type authControls struct {
 	Allowed     userDetails `json:"allowed"`
 	Disallowed  userDetails `json:"disallowed"`
 
-	// preOauth is a function that can be used to perform any pre-authorization checks
-	// that may be required for a given route. In this scenario it is used to support
-	// oauth2 flows helping to manage request sessions or indicating (via the boolean)
-	// if the remainder of the authorization checks should be skipped.
-	preOauth func(requests.RequestDetails) (bool, *errs.StatusError) `json:"-"`
-	// postOauth is a function that can be used to process requests to the OAuth callback
-	// endpoint for a given route, relying entirely on the returned StatusError to drive
-	// the response.
+	preOauth  func(requests.RequestDetails) (bool, *errs.StatusError)          `json:"-"`
 	postOauth func(context.Context, requests.RequestDetails) *errs.StatusError `json:"-"`
 }
 

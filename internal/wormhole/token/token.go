@@ -14,6 +14,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/rules"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
 )
 
@@ -50,17 +51,11 @@ type Authenticator interface {
 }
 
 type internal struct {
-	cipher  aescipher.Cipherer
-	client  requests.Client
-	kvStore streams.KVStore
-	ll      logs.Logger
-	// oauth2Enabled indicates if the oauth flow managed by an external
-	// oauth2 proxy instance is enabled.
-	oauth2Enabled bool
-	// oauth2RedirectURL redirect URL constructed from the OauthProxyURL.
-	oauth2RedirectURL *url.URL
-	// oauth2AuthURL authentication URL constructed from the OauthProxyURL.
-	oauth2AuthURL    *url.URL
+	cipher           aescipher.Cipherer
+	client           requests.Client
+	kvStore          streams.KVStore
+	ll               logs.Logger
+	oauthValid       oauthmngr.Validator
 	oauthExchangeURL string
 	tokenExchangeURL string
 	tokenSvcArgs     args.TokenService
@@ -73,29 +68,23 @@ func Initialize(
 	cipher aescipher.Cipherer,
 	kvStore streams.KVStore,
 	ll logs.Logger,
+	oauthValid oauthmngr.Validator,
 	tokenSvcArgs args.TokenService,
 ) Authenticator {
 	tokenURL, _ := url.Parse(tokenSvcArgs.TokenHost)
 
 	i := internal{
-		cipher:  cipher,
-		client:  requests.DefaultClient(ll),
-		kvStore: kvStore,
-		ll:      ll,
-		// oauth2Enabled:    tokenSvcArgs.OauthProxy != "",
+		cipher:           cipher,
+		client:           requests.DefaultClient(ll),
+		kvStore:          kvStore,
+		ll:               ll,
+		oauthValid:       oauthValid,
 		oauthExchangeURL: tokenURL.JoinPath(tokenSvcArgs.OauthExchangePath).String(),
 		tokenExchangeURL: tokenURL.JoinPath(tokenSvcArgs.TokenExchangePath).String(),
 		tokenSvcArgs:     tokenSvcArgs,
 		subtokenReqURL:   tokenURL.JoinPath(tokenSvcArgs.SubtokenPath).String(),
 		validator:        rules.NewValidator(),
 	}
-
-	/*
-		if i.oauth2Enabled {
-			i.oauth2RedirectURL = buildRedirectURL(tokenSvcArgs.OauthProxy)
-			i.oauth2AuthURL = buildAuthURL(tokenSvcArgs.OauthProxy)
-		}
-	*/
 
 	return i
 }

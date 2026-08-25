@@ -104,21 +104,14 @@ func (i internal) oauthFlow(
 
 	ll.InfoCtx(ctx, "oauthFlow initiated")
 
-	if !i.oauth2Enabled {
-		msg := "oauth2 support currently disabled"
-		ll.InfoCtx(ctx, msg)
-
-		return wormhole.TokenPayload{}, "", errs.SimpleAuthErr(errors.New(msg))
-	}
-
-	res, sErr := i.callProxyAuth(ctx, details, i.parseCookies(details))
+	res, sErr := i.oauthValid.ValidateCookies(ctx, details)
 	if sErr != nil {
 		return wormhole.TokenPayload{}, "", sErr
 	}
 
 	var cs cache
 
-	accessToken := res.headers[keys.Oauth2ProxyAccessTokenHeader]
+	accessToken := res.AccessToken
 	key := keys.WormholeOauthSession(accessToken)
 
 	cs, found, sErr := i.getCache(ctx, ll, key, accessToken)
@@ -127,7 +120,7 @@ func (i internal) oauthFlow(
 
 		// After reviewing this error we know the cache has been cleared, it is best to
 		// redirect them to the start of the login flow.
-		return wormhole.TokenPayload{}, "", errs.NewRedirectErr(i.constructProxyRedirect(details))
+		return wormhole.TokenPayload{}, "", i.oauthValid.NewAuthRedirectErr(details)
 	} else if found {
 		return cs.Payload, cs.decryptedJumpToken, nil
 	}

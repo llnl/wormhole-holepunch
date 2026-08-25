@@ -18,6 +18,21 @@ func mustParseURL(t *testing.T, str string) *url.URL {
 
 //
 
+func Test_NewURLString(t *testing.T) {
+	t.Run("invalid url", func(t *testing.T) {
+		got := NewURLString(`"https://example.com/%zz"`)
+
+		assert.Empty(t, got)
+	})
+
+	t.Run("valid url", func(t *testing.T) {
+		got := NewURLString("wormhole.example.com")
+
+		assert.Equal(t, "wormhole.example.com", got.Raw)
+		assert.Equal(t, "wormhole.example.com", got.Key)
+	})
+}
+
 func Test_URLString_UnmarshalJSON(t *testing.T) {
 	t.Run("success with full url", func(t *testing.T) {
 		var u URLString

@@ -16,6 +16,19 @@ type URLString struct {
 	Raw string
 }
 
+func NewURLString(rawURL string) URLString {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return URLString{}
+	}
+
+	return URLString{
+		Raw: rawURL,
+		Key: normalizeURL(parsed),
+		URL: parsed,
+	}
+}
+
 func (u *URLString) UnmarshalJSON(b []byte) error {
 	var str string
 	if err := json.Unmarshal(b, &str); err != nil {
