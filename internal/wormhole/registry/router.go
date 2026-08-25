@@ -47,13 +47,22 @@ type Router interface {
 	// FetchProxyControls retrieves all currently known proxy controls.
 	FetchProxyControls() map[string]ProxyControls
 
-	// PreAuth should be run before any authorization checks have occurred. The
+	// PreAuthentication should be run before any authorization checks have occurred. The
 	// returned boolean indicates whether the caller should skip the normal auth flow.
-	PreAuth(
+	PreAuthentication(
 		ctx context.Context,
 		ll logs.Logger,
 		req requests.RequestDetails,
 	) (bool, *errs.StatusError)
+
+	// PostAuthentication should be run to process requests to the OAuth callback endpoint,
+	// for routes whose PreAuthentication check allowed them to skip the normal auth flow.
+	// It relies entirely on the returned StatusError to drive the response.
+	PostAuthentication(
+		ctx context.Context,
+		ll logs.Logger,
+		req requests.RequestDetails,
+	) *errs.StatusError
 
 	// PublishSources retrieves that latest routes and publishes them if changes detected.
 	PublishSources(ctx context.Context) error

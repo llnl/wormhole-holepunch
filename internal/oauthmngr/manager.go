@@ -19,17 +19,16 @@
 //     after --oauth-nonce-ttl.
 //
 // Validator's methods cover the full request lifecycle: ExpandSources injects any
-// routes a strategy needs into the route registry, EstablishPreAuthFunc lets specific
+// routes a strategy needs into the route registry, EstablishPreAuthentication lets specific
 // requests (e.g. the oauth2-proxy or callback endpoints) skip Holepunch's own auth
-// check, PrepareAuthRedirect builds the redirect that kicks off a flow, RedirectHandler
-// processes the /-/wormhole/oauthmngr callback, and ValidateCookies extracts an access
-// token from an already-authenticated request's cookies.
+// check, PrepareAuthRedirect builds the redirect that kicks off a flow,
+// EstablishPostAuthentication processes the /-/wormhole/oauthmngr callback, and ValidateCookies
+// extracts an access token from an already-authenticated request's cookies.
 package oauthmngr
 
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
@@ -67,14 +66,22 @@ type Validator interface {
 		rawSources []wormhole.RawSource,
 	) []wormhole.RawSource
 
-	// EstablishPreAuthFunc returns a function that will be called prior to any request being
+	// EstablishPreAuthentication returns a function that will be called prior to any request being
 	// authenticated by the Holepunch Auth service. It will align session management with the
 	// admin configuration, using the StatusError to assist in redirects when required. Additionally,
 	// the returned boolean indicates whether the request should be allowed to skip the remaining
 	// auth flow, thus relying on the upstream Oauth2 service to handle the request.
-	EstablishPreAuthFunc(
+	EstablishPreAuthentication(
 		source wormhole.RawSource,
 	) func(requests.RequestDetails) (bool, *errs.StatusError)
+
+	// EstablishPostAuthentication returns a function that processes the `/-/wormhole/oauthmngr`
+	// callback, run the same way as EstablishPreAuthentication. It validates nonces, stores
+	// session state, and relies solely on the returned StatusError: use errs.NewRedirectErr
+	// with errs.WithSetCookie to redirect and set cookies, otherwise report failure.
+	EstablishPostAuthentication(
+		source wormhole.RawSource,
+	) func(ctx context.Context, details requests.RequestDetails) *errs.StatusError
 
 	// PrepareAuthRedirect creates the redirect URL to initiate the OAuth flow for an unauthenticated
 	// request. Takes the proposed redirect destination and request details, generates a nonce bound
@@ -85,15 +92,6 @@ type Validator interface {
 		proposedRedirect string,
 		details requests.RequestDetails,
 	) (string, *errs.StatusError)
-
-	// RedirectHandler processes requests to the `/-/wormhole/oauthmngr` callback endpoint.
-	// Validates nonces, retrieves stored session state, issues subdomain-scoped cookies, and
-	// returns the final redirect URL. This method isolates callback-specific logic from the
-	// general pre-auth flow.
-	RedirectHandler(
-		ctx context.Context,
-		details requests.RequestDetails,
-	) (*http.Cookie, *errs.StatusError)
 
 	// ValidateCookies validates the required cookies for a given request, read from the
 	// Cookie header in details.Headers, against the underlying Oauth2 flow. The resulting

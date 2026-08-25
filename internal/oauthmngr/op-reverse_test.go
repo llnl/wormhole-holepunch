@@ -200,13 +200,13 @@ func Test_oauth2ProxyReverseManager_ExpandSources(t *testing.T) {
 
 //
 
-func Test_oauth2ProxyReverseManager_EstablishPreAuthFunc(t *testing.T) {
+func Test_oauth2ProxyReverseManager_EstablishPreAuthentication(t *testing.T) {
 	t.Run("skips auth for oauth2-proxy endpoints", func(t *testing.T) {
 		manager := &oauth2ProxyReverseManager{
 			ll: logs.NewNopLogger(),
 		}
 
-		preAuthFunc := manager.EstablishPreAuthFunc(wormhole.RawSource{})
+		preAuthFunc := manager.EstablishPreAuthentication(wormhole.RawSource{})
 		details := requests.RequestDetails{
 			Path: "/-/wormhole/oauth2/start",
 		}
@@ -222,7 +222,7 @@ func Test_oauth2ProxyReverseManager_EstablishPreAuthFunc(t *testing.T) {
 			ll: logs.NewNopLogger(),
 		}
 
-		preAuthFunc := manager.EstablishPreAuthFunc(wormhole.RawSource{})
+		preAuthFunc := manager.EstablishPreAuthentication(wormhole.RawSource{})
 		details := requests.RequestDetails{
 			Path: "/api/v1/users",
 		}
@@ -238,7 +238,7 @@ func Test_oauth2ProxyReverseManager_EstablishPreAuthFunc(t *testing.T) {
 			ll: logs.NewNopLogger(),
 		}
 
-		preAuthFunc := manager.EstablishPreAuthFunc(wormhole.RawSource{})
+		preAuthFunc := manager.EstablishPreAuthentication(wormhole.RawSource{})
 		details := requests.RequestDetails{
 			Path: "/-/wormhole/oauth2/callback",
 		}
@@ -254,7 +254,7 @@ func Test_oauth2ProxyReverseManager_EstablishPreAuthFunc(t *testing.T) {
 			ll: logs.NewNopLogger(),
 		}
 
-		preAuthFunc := manager.EstablishPreAuthFunc(wormhole.RawSource{})
+		preAuthFunc := manager.EstablishPreAuthentication(wormhole.RawSource{})
 		details := requests.RequestDetails{
 			Path: "/-/wormhole/oauth2-something-else",
 		}

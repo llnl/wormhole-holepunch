@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 
@@ -80,10 +79,10 @@ func (o *oauth2ProxyReverseManager) ExpandSources(rawSources []wormhole.RawSourc
 	return expanded
 }
 
-// EstablishPreAuthFunc returns a function that checks if the request is for an oauth2-proxy
+// EstablishPreAuthentication returns a function that checks if the request is for an oauth2-proxy
 // endpoint. If so, it allows the request to skip Holepunch auth and be handled directly by
 // oauth2-proxy upstream.
-func (o *oauth2ProxyReverseManager) EstablishPreAuthFunc(
+func (o *oauth2ProxyReverseManager) EstablishPreAuthentication(
 	source wormhole.RawSource,
 ) func(requests.RequestDetails) (bool, *errs.StatusError) {
 	return func(details requests.RequestDetails) (bool, *errs.StatusError) {
@@ -92,6 +91,15 @@ func (o *oauth2ProxyReverseManager) EstablishPreAuthFunc(
 		}
 
 		return false, nil
+	}
+}
+
+// EstablishPostAuthentication is a no-op in the reverse proxy strategy.
+func (o *oauth2ProxyReverseManager) EstablishPostAuthentication(
+	source wormhole.RawSource,
+) func(context.Context, requests.RequestDetails) *errs.StatusError {
+	return func(_ context.Context, _ requests.RequestDetails) *errs.StatusError {
+		return nil
 	}
 }
 
@@ -115,17 +123,6 @@ func (o *oauth2ProxyReverseManager) PrepareAuthRedirect(
 	)
 
 	return redirectURL, nil
-}
-
-// RedirectHandler is not used in the reverse proxy strategy since oauth2-proxy handles
-// all callback logic directly. This method returns an error if called.
-func (o *oauth2ProxyReverseManager) RedirectHandler(
-	ctx context.Context, details requests.RequestDetails,
-) (*http.Cookie, *errs.StatusError) {
-	return nil, errs.NewInternalErr(
-		errors.New("redirect handler not used in reverse proxy strategy"),
-		"OAuth redirect handler is not applicable for this configuration",
-	)
 }
 
 // ValidateCookies extracts the oauth2-proxy session cookie, identified by the configured

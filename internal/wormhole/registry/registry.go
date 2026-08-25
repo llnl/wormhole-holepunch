@@ -108,11 +108,16 @@ type authControls struct {
 	CommunityID string      `json:"community_id"`
 	Allowed     userDetails `json:"allowed"`
 	Disallowed  userDetails `json:"disallowed"`
+
 	// preOauth is a function that can be used to perform any pre-authorization checks
 	// that may be required for a given route. In this scenario it is used to support
 	// oauth2 flows helping to manage request sessions or indicating (via the boolean)
 	// if the remainder of the authorization checks should be skipped.
 	preOauth func(requests.RequestDetails) (bool, *errs.StatusError) `json:"-"`
+	// postOauth is a function that can be used to process requests to the OAuth callback
+	// endpoint for a given route, relying entirely on the returned StatusError to drive
+	// the response.
+	postOauth func(context.Context, requests.RequestDetails) *errs.StatusError `json:"-"`
 }
 
 type userDetails struct {
@@ -174,12 +179,12 @@ func (i *internal) FetchProxyControls() map[string]ProxyControls {
 	return i.proxyCtls
 }
 
-func (i *internal) PreAuth(
+func (i *internal) PreAuthentication(
 	ctx context.Context,
 	ll logs.Logger,
 	req requests.RequestDetails,
 ) (bool, *errs.StatusError) {
-	ctx, endSpan := ll.StartSpan(ctx, "PreAuth")
+	ctx, endSpan := ll.StartSpan(ctx, "PreAuthentication")
 	defer endSpan()
 
 	skip, reqErr := i.preAuthCtls(req)
@@ -198,6 +203,26 @@ func (i *internal) PreAuth(
 	}
 
 	return skip, nil
+}
+
+func (i *internal) PostAuthentication(
+	ctx context.Context,
+	ll logs.Logger,
+	req requests.RequestDetails,
+) *errs.StatusError {
+	ctx, endSpan := ll.StartSpan(ctx, "PostAuthentication")
+	defer endSpan()
+
+	reqErr := i.postAuthCtls(ctx, req)
+	if reqErr != nil {
+		ll.InfoCtx(
+			ctx,
+			"post-auth processing denied",
+			ll.StringArg("error", reqErr.Error()),
+		)
+	}
+
+	return reqErr
 }
 
 func (i *internal) PublishSources(ctx context.Context) error {
@@ -295,6 +320,20 @@ func (i *internal) preAuthCtls(req requests.RequestDetails) (bool, *errs.StatusE
 	}
 
 	return ctl.preOauth(req)
+}
+
+// postAuthCtls runs the matched route's postOauth check, if one was established for it.
+func (i *internal) postAuthCtls(ctx context.Context, req requests.RequestDetails) *errs.StatusError {
+	ctl, gErr := i.findAuthCtl(req)
+	if gErr != nil {
+		return gErr
+	}
+
+	if ctl.postOauth == nil {
+		return nil
+	}
+
+	return ctl.postOauth(ctx, req)
 }
 
 func (i *internal) identifyID(req requests.RequestDetails) (string, *errs.StatusError) {

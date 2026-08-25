@@ -228,11 +228,17 @@ func Test_Config_Initialize(t *testing.T) {
 			},
 		)
 
-		// convert() consults EstablishPreAuthFunc for every source ExpandSources hands
-		// back, in order to populate that route's preOauth check.
-		mockValidator.EXPECT().EstablishPreAuthFunc(expanded[0]).Return(
+		// convert() consults EstablishPreAuthentication/EstablishPostAuthentication for every
+		// source ExpandSources hands back, in order to populate that route's preOauth/postOauth
+		// checks.
+		mockValidator.EXPECT().EstablishPreAuthentication(expanded[0]).Return(
 			func(requests.RequestDetails) (bool, *errs.StatusError) {
 				return false, nil
+			},
+		)
+		mockValidator.EXPECT().EstablishPostAuthentication(expanded[0]).Return(
+			func(context.Context, requests.RequestDetails) *errs.StatusError {
+				return nil
 			},
 		)
 
@@ -480,7 +486,7 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 	}
 }
 
-func Test_internal_PreAuth(t *testing.T) {
+func Test_internal_PreAuthentication(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -497,8 +503,8 @@ func Test_internal_PreAuth(t *testing.T) {
 	)
 
 	// Give each static route its own preOauth behavior so we can exercise the skip,
-	// deny, and continue-as-normal outcomes PreAuth is responsible for surfacing.
-	mockValidator.EXPECT().EstablishPreAuthFunc(gomock.Any()).DoAndReturn(
+	// deny, and continue-as-normal outcomes PreAuthentication is responsible for surfacing.
+	mockValidator.EXPECT().EstablishPreAuthentication(gomock.Any()).DoAndReturn(
 		func(raw wormhole.RawSource) func(requests.RequestDetails) (bool, *errs.StatusError) {
 			switch raw.ID {
 			case "4ff69450-30eb-489b-bb90-15f25cd88c7d":
@@ -513,6 +519,16 @@ func Test_internal_PreAuth(t *testing.T) {
 				return func(requests.RequestDetails) (bool, *errs.StatusError) {
 					return false, nil
 				}
+			}
+		},
+	).AnyTimes()
+
+	// convert() unconditionally consults EstablishPostAuthentication as well; its behavior
+	// isn't under test here.
+	mockValidator.EXPECT().EstablishPostAuthentication(gomock.Any()).DoAndReturn(
+		func(wormhole.RawSource) func(context.Context, requests.RequestDetails) *errs.StatusError {
+			return func(context.Context, requests.RequestDetails) *errs.StatusError {
+				return nil
 			}
 		},
 	).AnyTimes()
@@ -555,7 +571,7 @@ func Test_internal_PreAuth(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			skip, sErr := tr.PreAuth(t.Context(), ll, requests.RequestDetails{RouteID: tt.routeID})
+			skip, sErr := tr.PreAuthentication(t.Context(), ll, requests.RequestDetails{RouteID: tt.routeID})
 
 			assert.Equal(t, tt.wantSkip, skip)
 			tt.assertErr(t, sErr)

@@ -86,19 +86,33 @@ func (mr *MockRouterMockRecorder) FetchProxyControls() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FetchProxyControls", reflect.TypeOf((*MockRouter)(nil).FetchProxyControls))
 }
 
-// PreAuth mocks base method.
-func (m *MockRouter) PreAuth(ctx context.Context, ll logs.Logger, req requests.RequestDetails) (bool, *errs.StatusError) {
+// PostAuthentication mocks base method.
+func (m *MockRouter) PostAuthentication(ctx context.Context, ll logs.Logger, req requests.RequestDetails) *errs.StatusError {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PreAuth", ctx, ll, req)
+	ret := m.ctrl.Call(m, "PostAuthentication", ctx, ll, req)
+	ret0, _ := ret[0].(*errs.StatusError)
+	return ret0
+}
+
+// PostAuthentication indicates an expected call of PostAuthentication.
+func (mr *MockRouterMockRecorder) PostAuthentication(ctx, ll, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PostAuthentication", reflect.TypeOf((*MockRouter)(nil).PostAuthentication), ctx, ll, req)
+}
+
+// PreAuthentication mocks base method.
+func (m *MockRouter) PreAuthentication(ctx context.Context, ll logs.Logger, req requests.RequestDetails) (bool, *errs.StatusError) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PreAuthentication", ctx, ll, req)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(*errs.StatusError)
 	return ret0, ret1
 }
 
-// PreAuth indicates an expected call of PreAuth.
-func (mr *MockRouterMockRecorder) PreAuth(ctx, ll, req any) *gomock.Call {
+// PreAuthentication indicates an expected call of PreAuthentication.
+func (mr *MockRouterMockRecorder) PreAuthentication(ctx, ll, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreAuth", reflect.TypeOf((*MockRouter)(nil).PreAuth), ctx, ll, req)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PreAuthentication", reflect.TypeOf((*MockRouter)(nil).PreAuthentication), ctx, ll, req)
 }
 
 // PublishSources mocks base method.

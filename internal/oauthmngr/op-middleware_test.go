@@ -218,14 +218,14 @@ func Test_oauth2ProxyMiddlewareManager_ExpandSources(t *testing.T) {
 
 //
 
-func Test_oauth2ProxyMiddlewareManager_EstablishPreAuthFunc(t *testing.T) {
+func Test_oauth2ProxyMiddlewareManager_EstablishPreAuthentication(t *testing.T) {
 	t.Run("skips auth for oauth2-proxy endpoints on auth domain", func(t *testing.T) {
 		manager := &oauth2ProxyMiddlewareManager{
 			ll:         logs.NewNopLogger(),
 			authDomain: "auth.example.com",
 		}
 
-		preAuthFunc := manager.EstablishPreAuthFunc(wormhole.RawSource{})
+		preAuthFunc := manager.EstablishPreAuthentication(wormhole.RawSource{})
 		details := requests.RequestDetails{
 			Host: "auth.example.com",
 			Path: "/-/wormhole/oauth2/start",
@@ -243,7 +243,7 @@ func Test_oauth2ProxyMiddlewareManager_EstablishPreAuthFunc(t *testing.T) {
 			authDomain: "auth.example.com",
 		}
 
-		preAuthFunc := manager.EstablishPreAuthFunc(wormhole.RawSource{})
+		preAuthFunc := manager.EstablishPreAuthentication(wormhole.RawSource{})
 		details := requests.RequestDetails{
 			Host: "app.example.com",
 			Path: "/-/wormhole/oauth2/start",
@@ -262,7 +262,7 @@ func Test_oauth2ProxyMiddlewareManager_EstablishPreAuthFunc(t *testing.T) {
 			authDomain: "auth.example.com",
 		}
 
-		preAuthFunc := manager.EstablishPreAuthFunc(wormhole.RawSource{})
+		preAuthFunc := manager.EstablishPreAuthentication(wormhole.RawSource{})
 		details := requests.RequestDetails{
 			Host: "app.example.com",
 			Path: "/-/wormhole/oauthmngr?nonce=abc",
@@ -280,7 +280,7 @@ func Test_oauth2ProxyMiddlewareManager_EstablishPreAuthFunc(t *testing.T) {
 			authDomain: "auth.example.com",
 		}
 
-		preAuthFunc := manager.EstablishPreAuthFunc(wormhole.RawSource{})
+		preAuthFunc := manager.EstablishPreAuthentication(wormhole.RawSource{})
 		details := requests.RequestDetails{
 			Host: "app.example.com",
 			Path: "/api/v1/users",

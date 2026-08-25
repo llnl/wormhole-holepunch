@@ -17,9 +17,9 @@ The oauthmngr package provides a flexible interface (`Validator`) for handling O
 The `Validator` interface defines the contract for all OAuth implementations:
 
 - `ExpandSources()`: Adds required OAuth routes to the registry
-- `EstablishPreAuthFunc()`: Returns pre-auth logic for route-specific handling
+- `EstablishPreAuthentication()`: Returns pre-auth logic for route-specific handling
 - `PrepareAuthRedirect()`: Creates OAuth initiation redirect with nonce generation
-- `RedirectHandler()`: Processes OAuth callback requests
+- `EstablishPostAuthentication()`: Returns post-auth callback logic for the OAuth redirect endpoint
 - `ValidateCookies()`: Validates session cookies and extracts access tokens
 
 ### Strategies
@@ -154,7 +154,7 @@ if err != nil {
 The validator integrates with the route registry:
 
 1. Call `ExpandSources()` before snapshot generation to inject OAuth routes
-2. Use `EstablishPreAuthFunc()` to get per-route pre-auth logic
+2. Use `EstablishPreAuthentication()` to get per-route pre-auth logic
 3. Call `PrepareAuthRedirect()` when user needs authentication
 4. Call `ValidateCookies()` to validate existing sessions
 

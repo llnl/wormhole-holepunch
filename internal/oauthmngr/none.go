@@ -3,7 +3,6 @@ package oauthmngr
 import (
 	"context"
 	"errors"
-	"net/http"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
@@ -29,13 +28,23 @@ func (*noneManager) ExpandSources(rawSources []wormhole.RawSource) []wormhole.Ra
 	return rawSources
 }
 
-// EstablishPreAuthFunc returns a function that always returns false (don't skip auth)
+// EstablishPreAuthentication returns a function that always returns false (don't skip auth)
 // and no error, as OAuth is not configured.
-func (*noneManager) EstablishPreAuthFunc(
+func (*noneManager) EstablishPreAuthentication(
 	source wormhole.RawSource,
 ) func(requests.RequestDetails) (bool, *errs.StatusError) {
 	return func(details requests.RequestDetails) (bool, *errs.StatusError) {
 		return false, nil
+	}
+}
+
+// EstablishPostAuthentication returns a function that always returns an error, as OAuth is not
+// configured.
+func (*noneManager) EstablishPostAuthentication(
+	source wormhole.RawSource,
+) func(context.Context, requests.RequestDetails) *errs.StatusError {
+	return func(_ context.Context, _ requests.RequestDetails) *errs.StatusError {
+		return nil
 	}
 }
 
@@ -45,14 +54,6 @@ func (*noneManager) PrepareAuthRedirect(
 	_ requests.RequestDetails,
 ) (string, *errs.StatusError) {
 	return "", errs.SimpleInternalErr(errOAuthNotConfigured)
-}
-
-// RedirectHandler returns an error since OAuth is not configured.
-func (*noneManager) RedirectHandler(
-	_ context.Context,
-	_ requests.RequestDetails,
-) (*http.Cookie, *errs.StatusError) {
-	return nil, errs.SimpleInternalErr(errOAuthNotConfigured)
 }
 
 // ValidateCookies returns an error since OAuth is not configured. The Cookie header is

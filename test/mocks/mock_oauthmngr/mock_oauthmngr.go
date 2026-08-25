@@ -11,7 +11,6 @@ package mock_oauthmngr
 
 import (
 	context "context"
-	http "net/http"
 	reflect "reflect"
 
 	errs "github.com/llnl/wormhole-holepunch/internal/ctls/errs"
@@ -45,18 +44,32 @@ func (m *MockValidator) EXPECT() *MockValidatorMockRecorder {
 	return m.recorder
 }
 
-// EstablishPreAuthFunc mocks base method.
-func (m *MockValidator) EstablishPreAuthFunc(source wormhole.RawSource) func(requests.RequestDetails) (bool, *errs.StatusError) {
+// EstablishPostAuthentication mocks base method.
+func (m *MockValidator) EstablishPostAuthentication(source wormhole.RawSource) func(context.Context, requests.RequestDetails) *errs.StatusError {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "EstablishPreAuthFunc", source)
+	ret := m.ctrl.Call(m, "EstablishPostAuthentication", source)
+	ret0, _ := ret[0].(func(context.Context, requests.RequestDetails) *errs.StatusError)
+	return ret0
+}
+
+// EstablishPostAuthentication indicates an expected call of EstablishPostAuthentication.
+func (mr *MockValidatorMockRecorder) EstablishPostAuthentication(source any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EstablishPostAuthentication", reflect.TypeOf((*MockValidator)(nil).EstablishPostAuthentication), source)
+}
+
+// EstablishPreAuthentication mocks base method.
+func (m *MockValidator) EstablishPreAuthentication(source wormhole.RawSource) func(requests.RequestDetails) (bool, *errs.StatusError) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EstablishPreAuthentication", source)
 	ret0, _ := ret[0].(func(requests.RequestDetails) (bool, *errs.StatusError))
 	return ret0
 }
 
-// EstablishPreAuthFunc indicates an expected call of EstablishPreAuthFunc.
-func (mr *MockValidatorMockRecorder) EstablishPreAuthFunc(source any) *gomock.Call {
+// EstablishPreAuthentication indicates an expected call of EstablishPreAuthentication.
+func (mr *MockValidatorMockRecorder) EstablishPreAuthentication(source any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EstablishPreAuthFunc", reflect.TypeOf((*MockValidator)(nil).EstablishPreAuthFunc), source)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EstablishPreAuthentication", reflect.TypeOf((*MockValidator)(nil).EstablishPreAuthentication), source)
 }
 
 // ExpandSources mocks base method.
@@ -86,21 +99,6 @@ func (m *MockValidator) PrepareAuthRedirect(proposedRedirect string, details req
 func (mr *MockValidatorMockRecorder) PrepareAuthRedirect(proposedRedirect, details any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PrepareAuthRedirect", reflect.TypeOf((*MockValidator)(nil).PrepareAuthRedirect), proposedRedirect, details)
-}
-
-// RedirectHandler mocks base method.
-func (m *MockValidator) RedirectHandler(ctx context.Context, details requests.RequestDetails) (*http.Cookie, *errs.StatusError) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RedirectHandler", ctx, details)
-	ret0, _ := ret[0].(*http.Cookie)
-	ret1, _ := ret[1].(*errs.StatusError)
-	return ret0, ret1
-}
-
-// RedirectHandler indicates an expected call of RedirectHandler.
-func (mr *MockValidatorMockRecorder) RedirectHandler(ctx, details any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedirectHandler", reflect.TypeOf((*MockValidator)(nil).RedirectHandler), ctx, details)
 }
 
 // ValidateCookies mocks base method.

@@ -58,7 +58,8 @@ func (i *internal) convert(raw wormhole.RawSource) authControls {
 		Destination: raw.Destination.Raw,
 		Source:      raw.Source.Key,
 		CommunityID: raw.CommunityID,
-		preOauth:    i.oauthValid.EstablishPreAuthFunc(raw),
+		preOauth:    i.oauthValid.EstablishPreAuthentication(raw),
+		postOauth:   i.oauthValid.EstablishPostAuthentication(raw),
 	}
 }
 

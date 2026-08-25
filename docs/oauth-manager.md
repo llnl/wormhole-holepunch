@@ -88,17 +88,16 @@ type Validator interface {
     ExpandSources(
       rawSources []registry.RawSource,
     ) []registry.RawSource
-    EstablishPreAuthFunc(
+    EstablishPreAuthentication(
       source registry.RawSource,
     ) func(requests.RequestDetails) (bool, *errs.StatusError)
     PrepareAuthRedirect(
       proposedRedirect string,
       details requests.RequestDetails,
     ) (string, *errs.StatusError)
-    RedirectHandler(
-      ctx context.Context,
-      details requests.RequestDetails,
-    ) (*http.Cookie, *errs.StatusError)
+    EstablishPostAuthentication(
+      source registry.RawSource,
+    ) func(ctx context.Context, details requests.RequestDetails) *errs.StatusError
     ValidateCookies(
         ctx context.Context,
         details requests.RequestDetails,
@@ -109,7 +108,7 @@ type Validator interface {
 
 * **ExpandSources**: Offers an opportunity to expand the route registry provided
   configurations to include additional routes required to support the configured Oauth2 flow.
-* **EstablishPreAuthFunc**: Returns a function that will be called prior to any request being
+* **EstablishPreAuthentication**: Returns a function that will be called prior to any request being
   authenticated by the Holepunch Auth service. It will align session management requirements
   (e.g., redirects) and potentially allow auth to be skipped in cases where it is deferred
   to the upstream oauth2-proxy service.
@@ -118,10 +117,10 @@ type Validator interface {
   generates a nonce bound to the request characteristics, stores the nonce with the
   target destination, and returns the properly constructed redirect URL that will start
   the OAuth flow. This ensures nonces are created and injected when required.
-* **RedirectHandler**: Processes requests to the `/-/wormhole/oauthmngr` callback endpoint.
-  Validates nonces, retrieves stored session state, issues subdomain-scoped cookies, and
-  returns the final redirect URL. This method isolates callback-specific logic from the
-  general pre-auth flow.
+* **EstablishPostAuthentication**: Returns a function, run the same way as `EstablishPreAuthentication`,
+  that processes the `/-/wormhole/oauthmngr` callback. It validates nonces, stores session
+  state, and relies solely on the returned `StatusError`: use `errs.NewRedirectErr` with
+  `errs.WithSetCookie` to redirect and set cookies, otherwise report failure.
 * **ValidateCookies**: Primary authentication function to be invoked in cases where the
   traditional Wormhole Access Token is not provided. Returns a raw `access_token`; it is
   the caller's responsibility to exchange this for a Jump Token via the Token Service.
@@ -154,7 +153,7 @@ for establishing an OAuth client that can be generically applied to all SSOs.
   teams, or security boundaries. While the oauth2-proxy session on `auth.example.com` persists,
   users will go through the OAuth flow for each new subdomain to establish a subdomain-specific
   session.
-* The implementation of the `EstablishPreAuthFunc` will have a final say as to which endpoints
+* The implementation of the `EstablishPreAuthentication` will have a final say as to which endpoints
   will be allowed to skip auth (e.g., `/oauth2/start` would be allowed while other endpoints
   could be rejected). Careful review and testing of the underlying interface implementation will
   be required as this cannot be avoided.
@@ -162,7 +161,8 @@ for establishing an OAuth client that can be generically applied to all SSOs.
   we do not directly require observing scenarios where the user's oauth2-proxy issued
   access_token has been revoked. Instead, user revocation and access management will flow down through
   the Token Service.
-* Redirects are related through the `errs.NewRedirectErr` function.
+* Redirects are relayed through the `errs.NewRedirectErr` function, with any required cookie
+  attached via `errs.WithSetCookie`.
 
 ## Route Registry Requirements
 

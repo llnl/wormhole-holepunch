@@ -83,7 +83,7 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 
 	s.headerDebug(ctx, req, reqLog)
 
-	skip, sErr := s.routeReg.PreAuth(ctx, reqLog, details)
+	skip, sErr := s.routeReg.PreAuthentication(ctx, reqLog, details)
 	if sErr != nil {
 		sErr.LogError(ctx, reqLog)
 

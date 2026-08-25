@@ -114,9 +114,9 @@ func (o *oauth2ProxyMiddlewareManager) ExpandSources(rawSources []wormhole.RawSo
 	return expanded
 }
 
-// EstablishPreAuthFunc returns a function that handles pre-auth logic for OAuth flows.
+// EstablishPreAuthentication returns a function that handles pre-auth logic for OAuth flows.
 // It allows requests to oauth2-proxy endpoints and our callback handler to skip Holepunch auth.
-func (o *oauth2ProxyMiddlewareManager) EstablishPreAuthFunc(
+func (o *oauth2ProxyMiddlewareManager) EstablishPreAuthentication(
 	source wormhole.RawSource,
 ) func(requests.RequestDetails) (bool, *errs.StatusError) {
 	return func(details requests.RequestDetails) (bool, *errs.StatusError) {
@@ -136,6 +136,41 @@ func (o *oauth2ProxyMiddlewareManager) EstablishPreAuthFunc(
 		}
 
 		return false, nil
+	}
+}
+
+// EstablishPostAuthentication returns a function that processes the /-/wormhole/oauthmngr
+// callback. At the auth domain: captures the oauth2-proxy session cookie, stores it against
+// the nonce, and redirects to the target subdomain. At the target subdomain: retrieves that
+// session data, validates the nonce binding, and issues a subdomain-scoped cookie.
+func (o *oauth2ProxyMiddlewareManager) EstablishPostAuthentication(
+	source wormhole.RawSource,
+) func(context.Context, requests.RequestDetails) *errs.StatusError {
+	return func(ctx context.Context, details requests.RequestDetails) *errs.StatusError {
+		nonceParam := ""
+		if idx := strings.Index(details.Path, "?nonce="); idx != -1 {
+			nonceParam = details.Path[idx+7:]
+			if idx := strings.Index(nonceParam, "&"); idx != -1 {
+				nonceParam = nonceParam[:idx]
+			}
+		}
+
+		if nonceParam == "" {
+			o.ll.Warn("post-auth callback called without nonce parameter")
+			return errs.NewBadReqErr(errors.New("missing nonce parameter"), "Invalid authentication request")
+		}
+
+		nonce, err := url.QueryUnescape(nonceParam)
+		if err != nil {
+			o.ll.Warnf("failed to decode nonce: %s", err)
+			return errs.NewBadReqErr(err, "Invalid nonce format")
+		}
+
+		if details.Host == o.userAuthURL {
+			return o.handleAuthDomainCallback(ctx, nonce, details)
+		}
+
+		return o.handleSubdomainCallback(ctx, nonce, details)
 	}
 }
 
@@ -192,39 +227,6 @@ func (o *oauth2ProxyMiddlewareManager) PrepareAuthRedirect(
 	return redirectURL, nil
 }
 
-// RedirectHandler processes the /-/wormhole/oauthmngr callback. At the auth domain: captures
-// the oauth2-proxy session cookie, stores it against the nonce, and redirects to the target
-// subdomain. At the target subdomain: retrieves that session data, validates the nonce
-// binding, and issues a subdomain-scoped cookie.
-func (o *oauth2ProxyMiddlewareManager) RedirectHandler(
-	ctx context.Context, details requests.RequestDetails,
-) (*http.Cookie, *errs.StatusError) {
-	nonceParam := ""
-	if idx := strings.Index(details.Path, "?nonce="); idx != -1 {
-		nonceParam = details.Path[idx+7:]
-		if idx := strings.Index(nonceParam, "&"); idx != -1 {
-			nonceParam = nonceParam[:idx]
-		}
-	}
-
-	if nonceParam == "" {
-		o.ll.Warn("redirect handler called without nonce parameter")
-		return nil, errs.NewBadReqErr(errors.New("missing nonce parameter"), "Invalid authentication request")
-	}
-
-	nonce, err := url.QueryUnescape(nonceParam)
-	if err != nil {
-		o.ll.Warnf("failed to decode nonce: %s", err)
-		return nil, errs.NewBadReqErr(err, "Invalid nonce format")
-	}
-
-	if details.Host == o.userAuthURL {
-		return o.handleAuthDomainCallback(ctx, nonce, details)
-	}
-
-	return o.handleSubdomainCallback(ctx, nonce, details)
-}
-
 // ValidateCookies extracts the subdomain-scoped cookie issued by Holepunch, identified by
 // name, from the request's Cookie header. Middleware mode issues its own cookie rather than
 // relying on oauth2-proxy's directly. Result.CookieHeader has that cookie stripped.
@@ -250,10 +252,10 @@ func (o *oauth2ProxyMiddlewareManager) ValidateCookies(
 // It captures the oauth2-proxy session cookie and stores it with the nonce.
 func (o *oauth2ProxyMiddlewareManager) handleAuthDomainCallback(
 	ctx context.Context, nonce string, details requests.RequestDetails,
-) (*http.Cookie, *errs.StatusError) {
+) *errs.StatusError {
 	storedNonce, err := retrieveAndConsumeNonce(ctx, o.kvStore, o.ll, nonce, o.nonceTTL)
 	if err != nil {
-		return nil, errs.NewAuthErr(err, "Invalid or expired authentication session")
+		return errs.NewAuthErr(err, "Invalid or expired authentication session")
 	}
 
 	// Extract only the specific oauth2-proxy session cookie
@@ -264,7 +266,7 @@ func (o *oauth2ProxyMiddlewareManager) handleAuthDomainCallback(
 		o.ll.Warnf("oauth2-proxy session cookie not found at auth domain (expected cookie name: %s)", o.proxyCookieName)
 		cleanupNonce(ctx, o.kvStore, nonce)
 
-		return nil, errs.NewAuthErr(errors.New("session cookie not found"), "Authentication failed")
+		return errs.NewAuthErr(errors.New("session cookie not found"), "Authentication failed")
 	}
 
 	sessData := sessionData{
@@ -277,7 +279,7 @@ func (o *oauth2ProxyMiddlewareManager) handleAuthDomainCallback(
 		o.ll.Errorf("failed to store session data: %s", err)
 		cleanupNonce(ctx, o.kvStore, nonce)
 
-		return nil, errs.NewInternalErr(errors.New("failed to store session data"), "Failed to process authentication")
+		return errs.NewInternalErr(errors.New("failed to store session data"), "Failed to process authentication")
 	}
 
 	o.ll.Info("captured session cookie at auth domain")
@@ -295,22 +297,22 @@ func (o *oauth2ProxyMiddlewareManager) handleAuthDomainCallback(
 		url.QueryEscape(nonce),
 	)
 
-	return nil, errs.NewRedirectErr(redirectURL)
+	return errs.NewRedirectErr(redirectURL)
 }
 
 // handleSubdomainCallback processes the callback at the target subdomain.
 // It retrieves the session data, validates bindings, and issues a subdomain-scoped cookie.
 func (o *oauth2ProxyMiddlewareManager) handleSubdomainCallback(
 	ctx context.Context, nonce string, details requests.RequestDetails,
-) (*http.Cookie, *errs.StatusError) {
+) *errs.StatusError {
 	sessData, err := retrieveAndDeleteSessionData(ctx, o.kvStore, o.ll, nonce, o.nonceTTL)
 	if err != nil {
-		return nil, errs.NewAuthErr(err, "Invalid or expired authentication session")
+		return errs.NewAuthErr(err, "Invalid or expired authentication session")
 	}
 
 	if err := validateNonceBinding(o.ll, sessData.NonceData, details); err != nil {
 		o.ll.Errorf("nonce binding validation failed: %s", err)
-		return nil, errs.NewAuthErr(err, "Authentication validation failed")
+		return errs.NewAuthErr(err, "Authentication validation failed")
 	}
 
 	o.ll.Infof("validated nonce binding for subdomain callback (subdomain=%s)", details.Host)
@@ -329,5 +331,5 @@ func (o *oauth2ProxyMiddlewareManager) handleSubdomainCallback(
 	o.ll.Infof("issuing subdomain-scoped cookie (subdomain=%s, max_age=%d)",
 		details.Host, o.cookieMaxAge)
 
-	return cookie, errs.NewRedirectErr(sessData.NonceData.TargetURL)
+	return errs.NewRedirectErr(sessData.NonceData.TargetURL, errs.WithSetCookie(cookie))
 }
