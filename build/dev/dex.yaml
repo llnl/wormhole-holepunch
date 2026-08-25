@@ -13,7 +13,7 @@ staticClients:
     secret: oauth2-proxy-secret
     redirectURIs:
       - http://oauth.holepunch.localwormhole:4180/oauth2/callback
-      - 'http://envoy.holepunch.localwormhole:3128/oauth2/callback'
+      - http://envoy.holepunch.localwormhole:3128/oauth2/callback
     grantTypes:
       - authorization_code
       - refresh_token
