@@ -21,6 +21,7 @@ GITCOMMIT := $(shell if git status >/dev/null 2>/dev/null; then \
 fi)
 GITBRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 GOVERSION := $(shell go version | cut -c12- | awk '{ gsub (" ", "-", $$0); print}')
+GO_SEMVER := $(shell go env GOVERSION | sed 's/^go//')
 BUILDDATE := $(shell date -u +"%Y-%m-%dT%T%z")
 VERSION := $(if $(GITCOMMIT),$(shell cat VERSION).dev.${GITCOMMIT},$(shell cat VERSION))
 GOARCH := $(shell go env GOARCH)
@@ -29,7 +30,6 @@ GOOS := $(shell go env GOOS)
 #
 # Go variables
 GOCMD ?= go
-CGO_ENABLED = 0
 BUILD_FLAGS ?= -trimpath
 BUILD_TAGS = netgo
 LDFLAGS = -X ${INTERNAL_PKG}/version.version=${VERSION} \
@@ -40,7 +40,8 @@ LDFLAGS = -X ${INTERNAL_PKG}/version.version=${VERSION} \
 		  -s \
 		  -w
 
-CONTAINER_RUNTIME ?= podman
+CONTAINER_RUNTIME ?= $(shell command -v podman >/dev/null 2>&1 && echo podman || \
+	(command -v docker >/dev/null 2>&1 && echo docker))
 
 include build/build.mk
 include test/test.mk

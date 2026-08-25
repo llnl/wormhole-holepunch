@@ -1,4 +1,4 @@
-ARG GO_VERSION
+ARG GO_VERSION=latest
 FROM docker.io/library/golang:${GO_VERSION} AS build
 
 WORKDIR /holepunch
