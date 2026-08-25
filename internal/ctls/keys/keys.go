@@ -19,6 +19,7 @@ const (
 	Oauth2ProxyAccessTokenHeader = "x-auth-request-access-token" // nolint: gosec
 	PikoHeader                   = "x-piko-endpoint"
 	RequestIDHeader              = "x-request-id"
+	SetCookieHeader              = "set-cookie"
 	TraceparentHeader            = "traceparent"
 	VersionHeader                = "x-holepunch-version"
 	XForwardHostHeader           = "x-forwarded-host"

@@ -82,9 +82,8 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 	if sErr != nil {
 		sErr.LogError(ctx, reqLog)
 
-		redirect, redirectURL := sErr.RedirectRequired()
-		if redirect {
-			return s.redirectRequest(ctx, details, redirectURL, reqLog), nil
+		if redirect, _ := sErr.RedirectRequired(); redirect {
+			return s.redirectRequest(ctx, details, sErr, reqLog), nil
 		}
 
 		return s.denyRequest(ctx, sErr, reqLog), nil
@@ -234,6 +233,15 @@ func (s *authServer) denyRequest(
 		reqLog.StringArg("deny.code", code.String()),
 	)
 
+	headers := append([]*core.HeaderValueOption{
+		{
+			Header: &core.HeaderValue{
+				Key:   "content-type",
+				Value: "application/json",
+			},
+		},
+	}, errHeaders(sErr)...)
+
 	return &auth.CheckResponse{
 		Status: &status.Status{
 			Code:    sErr.Code(),
@@ -244,15 +252,8 @@ func (s *authServer) denyRequest(
 				Status: &envoy_type.HttpStatus{
 					Code: code,
 				},
-				Headers: []*core.HeaderValueOption{
-					{
-						Header: &core.HeaderValue{
-							Key:   "content-type",
-							Value: "application/json",
-						},
-					},
-				},
-				Body: sErr.Body(),
+				Headers: headers,
+				Body:    sErr.Body(),
 			},
 		},
 	}
@@ -264,15 +265,41 @@ func (s *authServer) denyRequest(
 func (s *authServer) redirectRequest(
 	ctx context.Context,
 	details requests.RequestDetails,
-	redirectURL string,
+	sErr *errs.StatusError,
 	reqLog logs.Logger,
 ) *auth.CheckResponse {
+	_, redirectURL := sErr.RedirectRequired()
+
 	reqLog.DebugCtx(
 		ctx,
 		"redirecting auth request",
 		reqLog.StringArg("redirect.url", redirectURL),
 		reqLog.StringArg("redirect.code", envoy_type.StatusCode_Found.String()),
 	)
+
+	headers := append([]*core.HeaderValueOption{
+		{
+			Header: &core.HeaderValue{
+				Key:   "location",
+				Value: redirectURL, // Redirect to this URL
+			},
+		}, {
+			Header: &core.HeaderValue{
+				Key:   keys.XForwardProtoHeader,
+				Value: details.Scheme,
+			},
+		}, {
+			Header: &core.HeaderValue{
+				Key:   keys.XForwardHostHeader,
+				Value: details.Host,
+			},
+		}, {
+			Header: &core.HeaderValue{
+				Key:   keys.XForwardURIHeader,
+				Value: details.Path,
+			},
+		},
+	}, errHeaders(sErr)...)
 
 	return &auth.CheckResponse{
 		Status: &status.Status{
@@ -283,29 +310,7 @@ func (s *authServer) redirectRequest(
 				Status: &envoy_type.HttpStatus{
 					Code: envoy_type.StatusCode_Found,
 				},
-				Headers: []*core.HeaderValueOption{
-					{
-						Header: &core.HeaderValue{
-							Key:   "location",
-							Value: redirectURL, // Redirect to this URL
-						},
-					}, {
-						Header: &core.HeaderValue{
-							Key:   keys.XForwardProtoHeader,
-							Value: details.Scheme,
-						},
-					}, {
-						Header: &core.HeaderValue{
-							Key:   keys.XForwardHostHeader,
-							Value: details.Host,
-						},
-					}, {
-						Header: &core.HeaderValue{
-							Key:   keys.XForwardURIHeader,
-							Value: details.Path,
-						},
-					},
-				},
+				Headers: headers,
 				Body: fmt.Sprintf(
 					`<html>
 <body>
@@ -317,6 +322,29 @@ func (s *authServer) redirectRequest(
 			},
 		},
 	}
+}
+
+// errHeaders converts the headers carried on a *errs.StatusError (e.g. via
+// errs.WithHeaders/errs.WithSetCookie) into envoy's HeaderValueOption format,
+// ready to be appended to a deny/redirect response.
+func errHeaders(sErr *errs.StatusError) []*core.HeaderValueOption {
+	hdrs := sErr.Headers()
+	if len(hdrs) == 0 {
+		return nil
+	}
+
+	headers := make([]*core.HeaderValueOption, 0, len(hdrs))
+	for k, v := range hdrs {
+		headers = append(headers, &core.HeaderValueOption{
+			Header: &core.HeaderValue{
+				Key:   k,
+				Value: v,
+			},
+			AppendAction: core.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD,
+		})
+	}
+
+	return headers
 }
 
 //
