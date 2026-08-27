@@ -23,7 +23,7 @@ services:
           - dex
 
   envoy:
-    image: docker.io/envoyproxy/envoy:distroless-v1.38.3
+    image: docker.io/envoyproxy/envoy:distroless-v1.38.4
     command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
     ports:
       - 3128:3128 # Proxy traffic
