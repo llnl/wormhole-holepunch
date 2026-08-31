@@ -262,6 +262,7 @@ func (s *authServer) denyRequest(
 // redirectRequest generate a redirect utilizing the trusted redirectURL established
 // by the token package (derived by a combination of inputs from the Token Service
 // and Route Registry).
+// nolint: funlen
 func (s *authServer) redirectRequest(
 	ctx context.Context,
 	details requests.RequestDetails,
@@ -269,6 +270,16 @@ func (s *authServer) redirectRequest(
 	reqLog logs.Logger,
 ) *auth.CheckResponse {
 	_, redirectURL := sErr.RedirectRequired()
+
+	if !s.routeReg.AllowedRedirect(redirectURL) {
+		errMsg := fmt.Errorf("invalid redirect URL: %s", redirectURL)
+		reqLog.WarnCtx(ctx, errMsg.Error())
+
+		// Establish a new error since this is no longer a valid redirect.
+		badReq := errs.SimpleBadReqErr(errMsg)
+
+		return s.denyRequest(ctx, badReq, reqLog)
+	}
 
 	reqLog.DebugCtx(
 		ctx,

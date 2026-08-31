@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
@@ -93,4 +94,19 @@ func sliceToMap(s []string) map[string]struct{} {
 	}
 
 	return m
+}
+
+func normalizeHostMap(hosts []string) (map[string]struct{}, error) {
+	m := make(map[string]struct{}, len(hosts))
+
+	for _, h := range hosts {
+		urlStr, err := keys.NormalizeURL(h)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", h, err)
+		}
+
+		m[urlStr.Key] = struct{}{}
+	}
+
+	return m, nil
 }
