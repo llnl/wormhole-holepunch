@@ -57,11 +57,12 @@ func loadOTEL(
 func loadRegistry(
 	ctx context.Context,
 	ll logs.Logger,
+	routePS streams.PubSub,
 ) registry.Router {
 	routes, err := registry.Initialize(
 		ctx,
 		requests.DefaultClient(ll),
-		loadRoutePubSub(ctx, ll),
+		routePS,
 		*routeRegArgs,
 		ll,
 	)
@@ -70,28 +71,4 @@ func loadRegistry(
 	}
 
 	return routes
-}
-
-func loadRoutePubSub(
-	ctx context.Context,
-	ll logs.Logger,
-) streams.PubSub {
-	ctls, err := streams.InitializeRoutes(ctx, *storageArgs, ll)
-	if err != nil {
-		log.Fatalf("failed to load route stream: %s", err.Error())
-	}
-
-	return ctls
-}
-
-func loadTokenStore(
-	ctx context.Context,
-	ll logs.Logger,
-) streams.KVStore {
-	ctls, err := streams.InitializeTokens(ctx, *storageArgs, ll)
-	if err != nil {
-		log.Fatalf("failed to load route stream: %s", err.Error())
-	}
-
-	return ctls
 }

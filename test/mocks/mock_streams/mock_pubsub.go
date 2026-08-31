@@ -56,29 +56,29 @@ func (mr *MockPubSubMockRecorder) Consume(ctx, handler any) *gomock.Call {
 }
 
 // Publish mocks base method.
-func (m *MockPubSub) Publish(ctx context.Context, v any) error {
+func (m *MockPubSub) Publish(ctx context.Context, val any) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Publish", ctx, v)
+	ret := m.ctrl.Call(m, "Publish", ctx, val)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Publish indicates an expected call of Publish.
-func (mr *MockPubSubMockRecorder) Publish(ctx, v any) *gomock.Call {
+func (mr *MockPubSubMockRecorder) Publish(ctx, val any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPubSub)(nil).Publish), ctx, v)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Publish", reflect.TypeOf((*MockPubSub)(nil).Publish), ctx, val)
 }
 
 // PublishSingleMsg mocks base method.
-func (m *MockPubSub) PublishSingleMsg(ctx context.Context, v any) error {
+func (m *MockPubSub) PublishSingleMsg(ctx context.Context, val any) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "PublishSingleMsg", ctx, v)
+	ret := m.ctrl.Call(m, "PublishSingleMsg", ctx, val)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // PublishSingleMsg indicates an expected call of PublishSingleMsg.
-func (mr *MockPubSubMockRecorder) PublishSingleMsg(ctx, v any) *gomock.Call {
+func (mr *MockPubSubMockRecorder) PublishSingleMsg(ctx, val any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishSingleMsg", reflect.TypeOf((*MockPubSub)(nil).PublishSingleMsg), ctx, v)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishSingleMsg", reflect.TypeOf((*MockPubSub)(nil).PublishSingleMsg), ctx, val)
 }

@@ -2,6 +2,7 @@ package holepunch
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os/signal"
 	"syscall"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/llnl/wormhole-holepunch/internal/cacher"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
 	"github.com/llnl/wormhole-holepunch/internal/envoy"
 	"github.com/llnl/wormhole-holepunch/internal/server"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
@@ -24,8 +26,23 @@ func startAuthCmd(ctx context.Context, _ *cli.Command) error {
 		defer otelShutdown(ctx, ll, shutdown)
 	}
 
-	tokenAuth := loadAuthenticator(loadTokenStore(ctx, ll), ll)
-	routeReg := loadRegistry(ctx, ll)
+	streamClient, err := streams.Connect(*storageArgs, ll)
+	if err != nil {
+		return fmt.Errorf("failed to connect to streams: %w", err)
+	}
+
+	tokenStore, err := streamClient.InitializeTokens(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize token store: %w", err)
+	}
+
+	routePS, err := streamClient.InitializeRoutes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize route pubsub: %w", err)
+	}
+
+	tokenAuth := loadAuthenticator(tokenStore, ll)
+	routeReg := loadRegistry(ctx, ll, routePS)
 
 	ll.Info("starting up holepunch envoy-auth...")
 
@@ -43,8 +60,23 @@ func startAdminCmd(ctx context.Context, _ *cli.Command) error {
 		defer otelShutdown(ctx, ll, shutdown)
 	}
 
-	tokenAuth := loadAuthenticator(loadTokenStore(ctx, ll), ll)
-	routeReg := loadRegistry(ctx, ll)
+	streamClient, err := streams.Connect(*storageArgs, ll)
+	if err != nil {
+		return fmt.Errorf("failed to connect to streams: %w", err)
+	}
+
+	tokenStore, err := streamClient.InitializeTokens(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize token store: %w", err)
+	}
+
+	routePS, err := streamClient.InitializeRoutes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize route pubsub: %w", err)
+	}
+
+	tokenAuth := loadAuthenticator(tokenStore, ll)
+	routeReg := loadRegistry(ctx, ll, routePS)
 
 	go manageRegistryRefresh(ctx, routeReg)
 
@@ -57,8 +89,23 @@ func startCacherCmd(ctx context.Context, _ *cli.Command) error {
 	ctx, stop, ll := defaultInit(ctx)
 	defer stop()
 
-	tokenAuth := loadAuthenticator(loadTokenStore(ctx, ll), ll)
-	routeReg := loadRegistry(ctx, ll)
+	streamClient, err := streams.Connect(*storageArgs, ll)
+	if err != nil {
+		return fmt.Errorf("failed to connect to streams: %w", err)
+	}
+
+	tokenStore, err := streamClient.InitializeTokens(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize token store: %w", err)
+	}
+
+	routePS, err := streamClient.InitializeRoutes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize route pubsub: %w", err)
+	}
+
+	tokenAuth := loadAuthenticator(tokenStore, ll)
+	routeReg := loadRegistry(ctx, ll, routePS)
 
 	ll.Info("starting up holepunch cacher...")
 
@@ -74,7 +121,17 @@ func startXDSCmd(ctx context.Context, _ *cli.Command) error {
 		defer otelShutdown(ctx, ll, shutdown)
 	}
 
-	routeReg := loadRegistry(ctx, ll)
+	streamClient, err := streams.Connect(*storageArgs, ll)
+	if err != nil {
+		return fmt.Errorf("failed to connect to streams: %w", err)
+	}
+
+	routePS, err := streamClient.InitializeRoutes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize route pubsub: %w", err)
+	}
+
+	routeReg := loadRegistry(ctx, ll, routePS)
 
 	ll.Info("starting up holepunch envoy-xds...")
 
