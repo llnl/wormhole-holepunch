@@ -18,6 +18,22 @@ func mustParseURL(t *testing.T, str string) *url.URL {
 
 //
 
+func Test_NormalizeURL(t *testing.T) {
+	t.Run("success with full url", func(t *testing.T) {
+		got, err := NormalizeURL("https://www.example.com/path?q=1")
+
+		assert.NoError(t, err)
+		assert.Equal(t, "example.com", got.Key)
+		assert.Equal(t, "https://www.example.com/path?q=1", got.Raw)
+	})
+
+	t.Run("returns error for invalid url", func(t *testing.T) {
+		_, err := NormalizeURL("https://example.com/%zz")
+
+		assert.Error(t, err)
+	})
+}
+
 func Test_URLString_UnmarshalJSON(t *testing.T) {
 	t.Run("success with full url", func(t *testing.T) {
 		var u URLString

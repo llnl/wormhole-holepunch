@@ -46,6 +46,20 @@ func (m *MockRouter) EXPECT() *MockRouterMockRecorder {
 	return m.recorder
 }
 
+// AllowedRedirect mocks base method.
+func (m *MockRouter) AllowedRedirect(propsedURL string) bool {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AllowedRedirect", propsedURL)
+	ret0, _ := ret[0].(bool)
+	return ret0
+}
+
+// AllowedRedirect indicates an expected call of AllowedRedirect.
+func (mr *MockRouterMockRecorder) AllowedRedirect(propsedURL any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllowedRedirect", reflect.TypeOf((*MockRouter)(nil).AllowedRedirect), propsedURL)
+}
+
 // AsyncFetchSources mocks base method.
 func (m *MockRouter) AsyncFetchSources() {
 	m.ctrl.T.Helper()

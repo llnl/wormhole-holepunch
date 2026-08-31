@@ -7,13 +7,26 @@ import (
 )
 
 type URLString struct {
-	// Key is a normalized URL that is used to help
-	// with storage of a variety of control components.
+	// Key is a normalized URL that is used to help with storage and any identification
+	// of a variety of control components. Any lookup or comparison should be done using this value.
 	Key string
 	// URL is the successfully parsed raw string.
 	URL *url.URL
-	// Raw is the unparsed response from the registry.
+	// Raw is the unparsed response from the registry pre-normalization.
 	Raw string
+}
+
+func NormalizeURL(str string) (URLString, error) {
+	parsed, err := url.Parse(str)
+	if err != nil {
+		return URLString{}, err
+	}
+
+	return URLString{
+		Key: normalizeURL(parsed),
+		URL: parsed,
+		Raw: str,
+	}, nil
 }
 
 func (u *URLString) UnmarshalJSON(b []byte) error {

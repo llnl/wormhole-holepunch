@@ -7,12 +7,13 @@ import (
 )
 
 const (
-	categoryRouter       = "Route Registry"
-	registryHostName     = "registry-host"
-	registryFetchName    = "registry-fetch"
-	registryDurationName = "registry-duration"
-	routePathName        = "route-path"
-	staticCfgName        = "static-config"
+	categoryRouter        = "Route Registry"
+	registryHostName      = "registry-host"
+	registryFetchName     = "registry-fetch"
+	registryDurationName  = "registry-duration"
+	routePathName         = "route-path"
+	staticCfgName         = "static-config"
+	redirectAllowListName = "redirect-allowlist"
 )
 
 type RouteRegistry struct {
@@ -21,6 +22,10 @@ type RouteRegistry struct {
 	RegistryDuration time.Duration
 	RoutePath        string
 	StaticCfg        string
+	// RedirectAllowList offers an admin defined set of hosts, in addition to
+	// those already established by the known routes (RawSource.Source), that
+	// are considered trusted redirect targets.
+	RedirectAllowList []string
 }
 
 func (f *FlagBuilder) RouteRegistryFlags(rr *RouteRegistry) *FlagBuilder {
@@ -64,6 +69,13 @@ func (f *FlagBuilder) RouteRegistryFlags(rr *RouteRegistry) *FlagBuilder {
 			Name:        staticCfgName,
 			Sources:     envWrapper("STATIC_CONFIG"),
 			Usage:       "Provide a static route configuration file, this is a lower priority to the host",
+		},
+		&cli.StringSliceFlag{
+			Category:    categoryRouter,
+			Destination: &rr.RedirectAllowList,
+			Name:        redirectAllowListName,
+			Sources:     envWrapper("REDIRECT_ALLOWLIST"),
+			Usage:       "Admin defined list of additional hosts trusted as redirect targets",
 		},
 	}...)
 

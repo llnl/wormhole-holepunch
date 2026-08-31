@@ -6,14 +6,17 @@ import (
 
 	envoy_core "github.com/envoyproxy/go-control-plane/envoy/config/core/v3"
 	auth "github.com/envoyproxy/go-control-plane/envoy/service/auth/v3"
+	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
+	"github.com/llnl/wormhole-holepunch/test/mocks/mock_registry"
 )
 
 // findHeader returns the HeaderValueOption for the given key, or nil if absent.
@@ -152,9 +155,16 @@ func Test_authServer_denyRequest(t *testing.T) {
 }
 
 func Test_authServer_redirectRequest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	routeReg := mock_registry.NewMockRouter(ctrl)
+	routeReg.EXPECT().AllowedRedirect(gomock.Any()).Return(true).AnyTimes()
 
 	t.Run("includes statusError headers", func(t *testing.T) {
-		s := &authServer{}
+		s := &authServer{
+			routeReg: routeReg,
+		}
 
 		sErr := errs.NewRedirectErr("https://login.example.com", errs.WithHeaders(map[string]string{
 			keys.SetCookieHeader: "session=abc123",
@@ -166,5 +176,22 @@ func Test_authServer_redirectRequest(t *testing.T) {
 
 		require.NotNil(t, got)
 		assert.Equal(t, "session=abc123", got.GetHeader().GetValue())
+	})
+
+	t.Run("invalid redirect URL", func(t *testing.T) {
+		invalidReg := mock_registry.NewMockRouter(ctrl)
+		invalidReg.EXPECT().AllowedRedirect("https://foo.example.com").Return(false)
+
+		s := &authServer{
+			routeReg: invalidReg,
+		}
+
+		sErr := errs.NewRedirectErr("https://foo.example.com", errs.WithHeaders(map[string]string{
+			keys.SetCookieHeader: "session=abc123",
+		}))
+
+		resp := s.redirectRequest(t.Context(), requests.RequestDetails{}, sErr, logs.InitializeDiscard())
+
+		assert.Equal(t, typev3.StatusCode_BadRequest, resp.GetDeniedResponse().GetStatus().GetCode())
 	})
 }

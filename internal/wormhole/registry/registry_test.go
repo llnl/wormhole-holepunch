@@ -183,6 +183,34 @@ func Test_Config_Initialize(t *testing.T) {
 
 		assert.Error(t, err)
 	})
+
+	t.Run("valid admin allowlist", func(t *testing.T) {
+		routeRegArgs := args.RouteRegistry{
+			RegistryHost: "https://example.com",
+			RedirectAllowList: []string{
+				"https://foo-admin.example.com",
+				"https://bar-admin.example.com/path",
+			},
+		}
+
+		got, err := Initialize(ctx, client, routePS, routeRegArgs, ll)
+
+		assert.NoError(t, err)
+		assert.Len(t, got.(*internal).adminRedirectAllow, 2)
+	})
+
+	t.Run("invalid admin allowlist", func(t *testing.T) {
+		routeRegArgs := args.RouteRegistry{
+			RegistryHost: "https://example.com",
+			RedirectAllowList: []string{
+				`"https://example.com/%zz"`,
+			},
+		}
+
+		_, err := Initialize(ctx, client, routePS, routeRegArgs, ll)
+
+		assert.ErrorContains(t, err, "invalid redirect allowlist")
+	})
 }
 
 func Test_internal_AsyncFetchSources(t *testing.T) {
@@ -432,6 +460,29 @@ func Test_internal_RefreshControls(t *testing.T) {
 		assert.GreaterOrEqual(t, len(i.authCtls), 3)
 		assert.GreaterOrEqual(t, len(i.FetchProxyControls()), 3)
 		assert.GreaterOrEqual(t, len(i.ReportControlsJSON()), 3)
+	})
+
+	t.Run("refresh include admin allowlist", func(t *testing.T) {
+		m := mockJetstreamMsg{
+			b: []byte(routeResponse),
+		}
+
+		i.adminRedirectAllow, _ = normalizeHostMap(
+			[]string{
+				"https://foo-admin.example.com",
+				"https://bar-admin.example.com/path",
+			},
+		)
+
+		i.RefreshControls(m)
+
+		_, barAdmin := i.redirectAllow["bar-admin.example.com"]
+		_, demoSrc := i.redirectAllow["example-pre.example.com"]
+		_, random := i.redirectAllow["random.url.example.com"]
+
+		assert.True(t, barAdmin)
+		assert.True(t, demoSrc)
+		assert.False(t, random)
 	})
 
 	t.Run("remove mapping", func(t *testing.T) {

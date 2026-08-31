@@ -57,6 +57,8 @@ type Router interface {
 	// ReportControlsJSON generate JSON output for those currently identified.
 	ReportControlsJSON() []byte
 
-	// SubscribeToSources
 	SubscribeToSources(ctx context.Context) error
+
+	// AllowedRedirect examines the proposed URL and identifies if it is a trusted redirect.
+	AllowedRedirect(propsedURL string) bool
 }

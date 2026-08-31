@@ -48,17 +48,24 @@ func Initialize(
 		return nil, fmt.Errorf("unable to open/parse %s: %w", routeRegArgs.StaticCfg, err)
 	}
 
-	i := &internal{
-		client:       client,
-		ll:           ll,
-		routePS:      routePS,
-		routeRegArgs: routeRegArgs,
-		routesURL:    u.JoinPath(routeRegArgs.RoutePath).String(),
-		staticSrc:    staticSrc,
-		vv:           rules.NewValidator(),
+	adminRedirectAllow, err := normalizeHostMap(routeRegArgs.RedirectAllowList)
+	if err != nil {
+		return nil, fmt.Errorf("invalid redirect allowlist entry: %w", err)
+	}
 
-		authCtls:  make(map[string]authControls),
-		proxyCtls: make(map[string]ProxyControls),
+	i := &internal{
+		adminRedirectAllow: adminRedirectAllow,
+		client:             client,
+		ll:                 ll,
+		routePS:            routePS,
+		routeRegArgs:       routeRegArgs,
+		routesURL:          u.JoinPath(routeRegArgs.RoutePath).String(),
+		staticSrc:          staticSrc,
+		vv:                 rules.NewValidator(),
+
+		authCtls:      make(map[string]authControls),
+		proxyCtls:     make(map[string]ProxyControls),
+		redirectAllow: make(map[string]struct{}),
 	}
 
 	// We will dynamically fetch/update the controls during the Holepunch
@@ -74,13 +81,14 @@ func Initialize(
 //
 
 type internal struct {
-	client       requests.Client
-	ll           logs.Logger
-	routePS      streams.PubSub
-	routeRegArgs args.RouteRegistry
-	routesURL    string
-	staticSrc    []RawSource
-	vv           rules.Validator
+	adminRedirectAllow map[string]struct{}
+	client             requests.Client
+	ll                 logs.Logger
+	routePS            streams.PubSub
+	routeRegArgs       args.RouteRegistry
+	routesURL          string
+	staticSrc          []RawSource
+	vv                 rules.Validator
 
 	mu sync.RWMutex
 	// authControls offers the primary internal mechanism by which we realize the
@@ -92,6 +100,10 @@ type internal struct {
 	// other required proxy configuration. It is designed to help establish
 	// filters/routes through supported mechanisms.
 	proxyCtls map[string]ProxyControls
+	// redirectAllow is the set of hosts trusted as redirect targets. It is
+	// rebuilt alongside authCtls/proxyCtls from the known routes' sources, and
+	// seeded with any admin defined hosts from adminRedirectAllow.
+	redirectAllow map[string]struct{}
 }
 
 // authControls is a managed structure of the router rules designed to
@@ -201,6 +213,20 @@ func (i *internal) SubscribeToSources(ctx context.Context) error {
 	return i.routePS.Consume(ctx, i.RefreshControls)
 }
 
+func (i *internal) AllowedRedirect(proposedURL string) bool {
+	urlStr, err := keys.NormalizeURL(proposedURL)
+	if err != nil || urlStr.Key == "" {
+		return false
+	}
+
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	_, found := i.redirectAllow[urlStr.Key]
+
+	return found
+}
+
 //
 
 func (i *internal) authorizeProxyCtls(
@@ -268,6 +294,14 @@ func (i *internal) updateCtls(sources []RawSource) {
 	authCtls := make(map[string]authControls, 0)
 	proxyCtls := make(map[string]ProxyControls, 0)
 
+	// Seed the redirect allow list with any admin defined hosts; every known
+	// route's source host is then added below, so a route is always a trusted
+	// redirect target by default.
+	redirectAllow := make(map[string]struct{}, len(i.adminRedirectAllow))
+	for host := range i.adminRedirectAllow {
+		redirectAllow[host] = struct{}{}
+	}
+
 	for _, rs := range append(i.staticSrc, sources...) {
 		i.ll.Debugf("updating mapping for %s (%s)", rs.Destination.Raw, rs.ID)
 
@@ -281,11 +315,16 @@ func (i *internal) updateCtls(sources []RawSource) {
 			CommunityID:    rs.CommunityID,
 			PrefixRewrite:  rs.PrefixRewrite,
 		}
+
+		if rs.Source.Key != "" {
+			redirectAllow[rs.Source.Key] = struct{}{}
+		}
 	}
 
 	i.mu.Lock()
 	i.authCtls = authCtls
 	i.proxyCtls = proxyCtls
+	i.redirectAllow = redirectAllow
 	i.mu.Unlock()
 }
 
