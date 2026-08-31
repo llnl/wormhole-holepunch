@@ -1,4 +1,5 @@
 define _build
+	CGO_ENABLED=0 \
 	${GOCMD} build \
 		${BUILD_FLAGS} \
 		-ldflags "${LDFLAGS}" \
@@ -8,6 +9,7 @@ define _build
 endef
 
 define CROSS_build
+	CGO_ENABLED=0 \
 	GOOS=${1} \
 	GOARCH=${2} \
 	${GOCMD} build \
@@ -32,15 +34,16 @@ build-linux-dev: build-dir
 	$(call CROSS_build,linux,${GOARCH},holepunch)
 	mv ${BUILDDIR}holepunch-linux-${GOARCH} ${BUILDDIR}holepunch-dev
 
-HOLEPUNCH_IMAGE := holepunch:local
+HOLEPUNCH_IMAGE ?= ghcr.io/llnl/wormhole-holepunch
+HOLEPUNCH_TAG ?= local
 
 .PHONY: build-container #B Build a development Holepunch container.
 build-container:
 	mkdir -p certs
-	podman build \
+	${CONTAINER_RUNTIME} build \
 		-f build/image/Containerfile \
-		--build-arg GO_VERSION="$$(yq -r '.spack.specs[] | select(test("^go@")) | sub("^go@"; "")' spack.yaml)" \
-		-t ${HOLEPUNCH_IMAGE} \
+		--build-arg GO_VERSION=${GO_SEMVER} \
+		-t ${HOLEPUNCH_IMAGE}:${HOLEPUNCH_TAG} \
 		.
 
 .PHONY: sbom #B Generate SBOM for the application using cyclonedx-gomod.
