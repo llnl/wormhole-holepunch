@@ -12,20 +12,26 @@ type KVStore interface {
 	AllKeys(ctx context.Context) ([]string, error)
 
 	// Delete removes a given from the store.
-	Delete(ctx context.Context, k string) error
+	Delete(ctx context.Context, key string) error
 
-	// Get retrieves and unmarshalls a given key from the store.
-	Get(ctx context.Context, k string, v any) error
+	// Get retrieves and unmarshal a given key from the store.
+	Get(ctx context.Context, key string, val any) error
 
-	// Put marshalls and places it in a store at the given key.
-	Put(ctx context.Context, k string, v any) error
+	// GetWithRevision retrieves and unmarshal a given key from the store along with its revision number.
+	GetWithRevision(ctx context.Context, key string, val any) (uint64, error)
+
+	// Put marshals and places it in a store at the given key.
+	Put(ctx context.Context, key string, val any) error
+
+	// UpdateWithRevision atomically updates a key only if the revision matches (compare-and-swap).
+	UpdateWithRevision(ctx context.Context, key string, val any, revision uint64) error
 }
 
-func (c *ctls) AllKeys(ctx context.Context) ([]string, error) {
-	ctx, endSpan := c.ll.StartSpan(ctx, "KVStore_AllKeys")
+func (k *kvStore) AllKeys(ctx context.Context) ([]string, error) {
+	ctx, endSpan := k.client.ll.StartSpan(ctx, "KVStore_AllKeys")
 	defer endSpan()
 
-	kw, err := c.kv.WatchAll(ctx, jetstream.IgnoreDeletes())
+	kw, err := k.kv.WatchAll(ctx, jetstream.IgnoreDeletes())
 	if err != nil {
 		return []string{}, err
 	}
@@ -45,35 +51,65 @@ func (c *ctls) AllKeys(ctx context.Context) ([]string, error) {
 	return keys, nil
 }
 
-func (c *ctls) Delete(ctx context.Context, k string) error {
-	ctx, endSpan := c.ll.StartSpan(ctx, "KVStore_Delete")
+func (k *kvStore) Delete(ctx context.Context, key string) error {
+	ctx, endSpan := k.client.ll.StartSpan(ctx, "KVStore_Delete")
 	defer endSpan()
 
-	return c.kv.Delete(ctx, k)
+	return k.kv.Delete(ctx, key)
 }
 
-func (c *ctls) Get(ctx context.Context, k string, v any) error {
-	ctx, endSpan := c.ll.StartSpan(ctx, "KVStore_Get")
+func (k *kvStore) Get(ctx context.Context, key string, val any) error {
+	ctx, endSpan := k.client.ll.StartSpan(ctx, "KVStore_Get")
 	defer endSpan()
 
-	entry, err := c.kv.Get(ctx, k)
+	entry, err := k.kv.Get(ctx, key)
 	if err != nil {
 		return err
 	}
 
-	return json.Unmarshal(entry.Value(), v)
+	return json.Unmarshal(entry.Value(), val)
 }
 
-func (c *ctls) Put(ctx context.Context, k string, v any) error {
-	ctx, endSpan := c.ll.StartSpan(ctx, "KVStore_Put")
+func (k *kvStore) GetWithRevision(ctx context.Context, key string, val any) (uint64, error) {
+	ctx, endSpan := k.client.ll.StartSpan(ctx, "KVStore_GetWithRevision")
 	defer endSpan()
 
-	b, err := json.Marshal(v)
+	entry, err := k.kv.Get(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := json.Unmarshal(entry.Value(), val); err != nil {
+		return 0, err
+	}
+
+	return entry.Revision(), nil
+}
+
+func (k *kvStore) Put(ctx context.Context, key string, val any) error {
+	ctx, endSpan := k.client.ll.StartSpan(ctx, "KVStore_Put")
+	defer endSpan()
+
+	b, err := json.Marshal(val)
 	if err != nil {
 		return err
 	}
 
-	_, err = c.kv.Put(ctx, k, b)
+	_, err = k.kv.Put(ctx, key, b)
+
+	return err
+}
+
+func (k *kvStore) UpdateWithRevision(ctx context.Context, key string, val any, revision uint64) error {
+	ctx, endSpan := k.client.ll.StartSpan(ctx, "KVStore_UpdateWithRevision")
+	defer endSpan()
+
+	b, err := json.Marshal(val)
+	if err != nil {
+		return err
+	}
+
+	_, err = k.kv.Update(ctx, key, b, revision)
 
 	return err
 }

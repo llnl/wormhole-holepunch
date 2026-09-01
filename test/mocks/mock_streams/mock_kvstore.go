@@ -56,43 +56,72 @@ func (mr *MockKVStoreMockRecorder) AllKeys(ctx any) *gomock.Call {
 }
 
 // Delete mocks base method.
-func (m *MockKVStore) Delete(ctx context.Context, k string) error {
+func (m *MockKVStore) Delete(ctx context.Context, key string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, k)
+	ret := m.ctrl.Call(m, "Delete", ctx, key)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Delete indicates an expected call of Delete.
-func (mr *MockKVStoreMockRecorder) Delete(ctx, k any) *gomock.Call {
+func (mr *MockKVStoreMockRecorder) Delete(ctx, key any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockKVStore)(nil).Delete), ctx, k)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockKVStore)(nil).Delete), ctx, key)
 }
 
 // Get mocks base method.
-func (m *MockKVStore) Get(ctx context.Context, k string, v any) error {
+func (m *MockKVStore) Get(ctx context.Context, key string, val any) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Get", ctx, k, v)
+	ret := m.ctrl.Call(m, "Get", ctx, key, val)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Get indicates an expected call of Get.
-func (mr *MockKVStoreMockRecorder) Get(ctx, k, v any) *gomock.Call {
+func (mr *MockKVStoreMockRecorder) Get(ctx, key, val any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockKVStore)(nil).Get), ctx, k, v)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockKVStore)(nil).Get), ctx, key, val)
+}
+
+// GetWithRevision mocks base method.
+func (m *MockKVStore) GetWithRevision(ctx context.Context, key string, val any) (uint64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWithRevision", ctx, key, val)
+	ret0, _ := ret[0].(uint64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWithRevision indicates an expected call of GetWithRevision.
+func (mr *MockKVStoreMockRecorder) GetWithRevision(ctx, key, val any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWithRevision", reflect.TypeOf((*MockKVStore)(nil).GetWithRevision), ctx, key, val)
 }
 
 // Put mocks base method.
-func (m *MockKVStore) Put(ctx context.Context, k string, v any) error {
+func (m *MockKVStore) Put(ctx context.Context, key string, val any) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Put", ctx, k, v)
+	ret := m.ctrl.Call(m, "Put", ctx, key, val)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Put indicates an expected call of Put.
-func (mr *MockKVStoreMockRecorder) Put(ctx, k, v any) *gomock.Call {
+func (mr *MockKVStoreMockRecorder) Put(ctx, key, val any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockKVStore)(nil).Put), ctx, k, v)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockKVStore)(nil).Put), ctx, key, val)
+}
+
+// UpdateWithRevision mocks base method.
+func (m *MockKVStore) UpdateWithRevision(ctx context.Context, key string, val any, revision uint64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWithRevision", ctx, key, val, revision)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWithRevision indicates an expected call of UpdateWithRevision.
+func (mr *MockKVStoreMockRecorder) UpdateWithRevision(ctx, key, val, revision any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWithRevision", reflect.TypeOf((*MockKVStore)(nil).UpdateWithRevision), ctx, key, val, revision)
 }

@@ -7,24 +7,21 @@ import (
 	natsserver "github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	natsclient "github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 )
+
+var ll = logs.InitializeDiscard()
 
 /*
 	Mock NATS server, based maintainer feedback in upstream issue:
 	https://github.com/nats-io/nats.go/issues/467
 */
 
-func localNatsServer(t *testing.T) *natsserver.Server {
-	return natsServerStartup(t, &natsserver.Options{
-		Host:      "127.0.0.1",
-		Port:      4222,
-		JetStream: true,
-		StoreDir:  t.TempDir(),
-	})
-}
-
-func inProcessNatsServer(t *testing.T, name, sub string) (*natsclient.Conn, nats.JetStreamContext, *natsserver.Server) {
+func inProcessNatsServer(t *testing.T, name, sub string) (*natsclient.Conn, jetstream.JetStream, *natsserver.Server) {
 	opts := &natsserver.Options{
 		DontListen: true, // Don't make a TCP socket.
 		JetStream:  true,
@@ -33,22 +30,13 @@ func inProcessNatsServer(t *testing.T, name, sub string) (*natsclient.Conn, nats
 
 	srv := natsServerStartup(t, opts)
 
-	conn, _ := natsclient.Connect("", natsclient.InProcessServer(srv))
-	js, _ := conn.JetStream()
+	nc, err := nats.Connect("", natsclient.InProcessServer(srv))
+	require.NoError(t, err, "nats.Connect")
 
-	cfg := &nats.StreamConfig{
-		Name:     name,
-		Subjects: []string{sub},
-		Storage:  nats.FileStorage,
-	}
+	js, err := jetstream.New(nc)
+	require.NoError(t, err, "jetstream.New")
 
-	_, err := js.AddStream(cfg)
-	if err != nil {
-		assert.NoError(t, err, "adding test stream")
-		t.Fail()
-	}
-
-	return conn, js, srv
+	return nc, js, srv
 }
 
 func natsServerStartup(t *testing.T, opts *natsserver.Options) *natsserver.Server {
@@ -67,4 +55,13 @@ func natsServerStartup(t *testing.T, opts *natsserver.Options) *natsserver.Serve
 	}
 
 	return server
+}
+
+func localNatsServer(t *testing.T) *natsserver.Server {
+	return natsServerStartup(t, &natsserver.Options{
+		Host:      "127.0.0.1",
+		Port:      4222,
+		JetStream: true,
+		StoreDir:  t.TempDir(),
+	})
 }

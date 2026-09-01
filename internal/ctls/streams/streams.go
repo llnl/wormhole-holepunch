@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -17,9 +18,12 @@ import (
 )
 
 const (
-	routesSubject = "holepunch.routes"
-	routesStream  = "HOLEPUNCH_ROUTES"
-	tokenBucket   = "holepunch_tokens"
+	routesSubject  = "holepunch.routes"
+	routesStream   = "HOLEPUNCH_ROUTES"
+	sessionBucket  = "holepunch_sessions"
+	tokenBucket    = "holepunch_tokens"
+	minKVTTL       = 100 * time.Millisecond
+	natsHostPrefix = "nats://"
 )
 
 var (
@@ -27,120 +31,49 @@ var (
 	maxRetries  = 5
 )
 
-type Configuration struct {
-	Host         string
-	ConsumerName string
-	Replicas     int
-	TokensTTL    time.Duration
-	MaxValueSize int32
+// Client owns the shared NATS and JetStream connection for all stream resources
+// used by a single process.
+type Client struct {
+	js          jetstream.JetStream
+	ll          logs.Logger
+	logHost     string
+	nc          *nats.Conn
+	tarHost     string
+	storageArgs args.Storage
 }
 
-type ctls struct {
+// kvStore is a single KeyValue bucket handle backed by a shared Client.
+type kvStore struct {
+	client *Client
+	kv     jetstream.KeyValue
+}
+
+// pubsub is a single stream/consumer handle backed by a shared Client.
+type pubsub struct {
+	client     *Client
 	consumer   jetstream.Consumer
-	js         jetstream.JetStream
-	kv         jetstream.KeyValue
-	ll         logs.Logger
-	nc         *nats.Conn
 	stream     jetstream.Stream
 	streamName string
 	subject    string
 }
 
-// InitializeTokens starts the NATS connection and support key/value store
-// for token management.
-func InitializeTokens(ctx context.Context, storageArgs args.Storage, ll logs.Logger) (KVStore, error) {
-	ll.Info("establishing token key/value store targeting " + cleanHostURL(storageArgs.NatsHost))
+// Connect establishes the shared NATS and JetStream client used to initialize
+// one or more KV buckets and/or streams from the same process.
+func Connect(storageArgs args.Storage, ll logs.Logger) (*Client, error) {
+	tarHost := buildNatsHost(storageArgs)
+	logHost := cleanHostURL(tarHost)
 
-	sc, err := connect(storageArgs, ll, routesSubject, routesStream)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create or retrieve a Key-Value store bucket
-	kv, err := sc.js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket:       tokenBucket,
-		Replicas:     storageArgs.NatsReplicas,
-		Storage:      jetstream.MemoryStorage,
-		MaxValueSize: storageArgs.MaxValueSize,
-		History:      1,
-		TTL:          storageArgs.TokensTTL,
-	})
-	if err != nil {
-		// If bucket exists, just bind to it
-		kv, err = sc.js.KeyValue(ctx, tokenBucket)
-		if err != nil {
-			return nil, fmt.Errorf("failed to bind to KeyValue store: %w", err)
-		}
-	}
-
-	sc.kv = kv
-
-	return sc, nil
-}
-
-// InitializeRoutes starts the NATS connection and context to both publish/subscribe
-// messages relating to route management.
-func InitializeRoutes(ctx context.Context, storageArgs args.Storage, ll logs.Logger) (PubSub, error) {
-	ll.Info("establishing routes stream targeting " + cleanHostURL(storageArgs.NatsHost))
-
-	sc, err := connect(storageArgs, ll, routesSubject, routesStream)
-	if err != nil {
-		return nil, err
-	}
-
-	streamCfg := jetstream.StreamConfig{
-		Name:        sc.streamName,
-		Replicas:    storageArgs.NatsReplicas,
-		Subjects:    []string{sc.subject},
-		Storage:     jetstream.MemoryStorage, // In-memory stream
-		MaxMsgs:     1,                       // Retain only the last message
-		Discard:     jetstream.DiscardOld,    // Discard old messages when limit is reached
-		AllowDirect: true,                    // Enable direct get for efficiency
-	}
-
-	err = sc.addStream(ctx, streamCfg)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a durable consumer that doesn't delete messages on acknowledgement
-	// By using AckExplicitPolicy with MaxDeliver=-1, messages remain in the stream
-	// even after being acknowledged, allowing multiple consumers to read the same message
-	consumer, err := sc.stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-		Durable:       storageArgs.Consumer,
-		AckPolicy:     jetstream.AckExplicitPolicy, // Require explicit acknowledgement
-		MaxDeliver:    -1,                          // Unlimited redelivery (messages not deleted)
-		DeliverPolicy: jetstream.DeliverLastPolicy, // Always start with the last message
-		AckWait:       15 * time.Second,            // Wait time before redelivery
-		FilterSubject: sc.subject,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error creating consumer: %w", err)
-	}
-
-	sc.consumer = consumer
-
-	return sc, nil
-}
-
-//
-
-func connect(
-	storageArgs args.Storage,
-	ll logs.Logger,
-	subject, streamName string,
-) (*ctls, error) {
 	nc, err := nats.Connect(
-		storageArgs.NatsHost,
+		tarHost,
 		nats.MaxReconnects(maxRetries),
 		nats.ReconnectWait(waitBetween),
-		nats.Timeout(10*time.Second), // per-attempt dial/connect timeout
+		nats.Timeout(10*time.Second),
 		nats.RetryOnFailedConnect(true),
 		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
 			ll.Warnf("NATS disconnected: %v", err)
 		}),
-		nats.ReconnectHandler(func(nc *nats.Conn) {
-			ll.Infof("NATS reconnected to %s", cleanHostURL(storageArgs.NatsHost))
+		nats.ReconnectHandler(func(_ *nats.Conn) {
+			ll.Infof("NATS reconnected to %s", logHost)
 		}),
 		nats.ClosedHandler(func(nc *nats.Conn) {
 			ll.Errorf("NATS connection closed: %v", nc.LastError())
@@ -152,31 +85,158 @@ func connect(
 
 	js, err := jetstream.New(nc)
 	if err != nil {
+		nc.Close()
 		return nil, fmt.Errorf("error creating JetStream context: %w", err)
 	}
 
-	return &ctls{
-		js:         js,
-		ll:         ll,
-		nc:         nc,
-		subject:    subject,
-		streamName: streamName,
+	return &Client{
+		js:          js,
+		ll:          ll,
+		logHost:     logHost,
+		nc:          nc,
+		tarHost:     tarHost,
+		storageArgs: storageArgs,
 	}, nil
 }
 
-func (c *ctls) addStream(ctx context.Context, streamCfg jetstream.StreamConfig) error {
+// Close shuts down the shared NATS connection.
+func (c *Client) Close() {
+	if c == nil || c.nc == nil || c.nc.IsClosed() {
+		return
+	}
+
+	c.nc.Close()
+}
+
+// InitializeTokens starts or binds the token KeyValue store using the shared Client.
+func (c *Client) InitializeTokens(ctx context.Context) (KVStore, error) {
+	return c.initializeKV(ctx, tokenBucket)
+}
+
+// InitializeSessions starts or binds the session KeyValue store using the shared Client.
+func (c *Client) InitializeSessions(ctx context.Context) (KVStore, error) {
+	return c.initializeKV(ctx, sessionBucket)
+}
+
+// InitializeRoutes starts the NATS stream and consumer used for route management
+// using the shared Client.
+func (c *Client) InitializeRoutes(ctx context.Context) (PubSub, error) {
+	return c.initializePubSub(ctx, routesStream, routesSubject)
+}
+
+//
+
+func (c *Client) initializePubSub(ctx context.Context, streamName, subject string) (PubSub, error) {
+	c.ll.Info("establishing routes stream targeting " + c.logHost)
+
+	ps := &pubsub{
+		client:     c,
+		streamName: streamName,
+		subject:    subject,
+	}
+
+	streamCfg := jetstream.StreamConfig{
+		Name:        ps.streamName,
+		Replicas:    c.storageArgs.NatsReplicas,
+		Subjects:    []string{ps.subject},
+		Storage:     jetstream.MemoryStorage,
+		MaxMsgs:     1,
+		Discard:     jetstream.DiscardOld,
+		AllowDirect: true,
+	}
+
 	stream, err := c.js.CreateStream(ctx, streamCfg)
 	if err != nil {
 		if errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
-			c.ll.Debugf("stream %s already exists, skipping creation", c.streamName)
+			c.ll.Debugf("stream %s already exists, binding to existing stream", ps.streamName)
+
+			stream, err = c.js.Stream(ctx, ps.streamName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to bind existing stream %q: %w", ps.streamName, err)
+			}
 		} else {
-			return err
+			return nil, fmt.Errorf("failed to create stream %q: %w", ps.streamName, err)
 		}
 	}
 
-	c.stream = stream
+	ps.stream = stream
 
-	return nil
+	consumer, err := ps.stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
+		Durable:       c.storageArgs.Consumer,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		MaxDeliver:    -1,
+		DeliverPolicy: jetstream.DeliverLastPolicy,
+		AckWait:       15 * time.Second,
+		FilterSubject: ps.subject,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error creating consumer: %w", err)
+	}
+
+	ps.consumer = consumer
+
+	return ps, nil
+}
+
+func (c *Client) initializeKV(ctx context.Context, bucket string) (KVStore, error) {
+	c.ll.Info(fmt.Sprintf(
+		"establishing key/value %s store targeting %s",
+		bucket,
+		c.logHost,
+	))
+
+	if c.storageArgs.TokensTTL > 0 && c.storageArgs.TokensTTL < minKVTTL {
+		return nil, fmt.Errorf(
+			"invalid TTL for KV bucket %q: %s; must be 0 or >= %s",
+			bucket,
+			c.storageArgs.TokensTTL,
+			minKVTTL,
+		)
+	}
+
+	kv, err := c.js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket:       bucket,
+		Replicas:     c.storageArgs.NatsReplicas,
+		Storage:      jetstream.MemoryStorage,
+		MaxValueSize: c.storageArgs.MaxValueSize,
+		History:      1,
+		TTL:          c.storageArgs.TokensTTL,
+	})
+	if err != nil {
+		// Only bind if the bucket actually exists. If binding also fails, return
+		// both errors so the original cause is not masked.
+		existing, bindErr := c.js.KeyValue(ctx, bucket)
+		if bindErr != nil {
+			return nil, fmt.Errorf("create KV bucket %q failed: %w; bind failed: %w", bucket, err, bindErr)
+		}
+
+		kv = existing
+	}
+
+	return &kvStore{
+		client: c,
+		kv:     kv,
+	}, nil
+}
+
+//
+
+func buildNatsHost(storageArgs args.Storage) string {
+	if strings.HasPrefix(storageArgs.StorageHost, natsHostPrefix) {
+		return storageArgs.StorageHost
+	}
+
+	if storageArgs.StorageUser != "" && storageArgs.StoragePassword != "" {
+		return fmt.Sprintf(
+			"%s%s:%s@%s",
+			natsHostPrefix,
+			storageArgs.StorageUser,
+			storageArgs.StoragePassword,
+			storageArgs.StorageHost,
+		)
+	}
+
+	return storageArgs.StorageHost
 }
 
 func cleanHostURL(rawURL string) string {

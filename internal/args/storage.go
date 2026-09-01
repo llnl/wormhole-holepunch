@@ -8,20 +8,24 @@ import (
 )
 
 const (
-	categoryStorage  = "Storage"
-	natsHostName     = "nats-host"
-	natsReplicasName = "nats-replicas"
-	consumerName     = "consumer-name"
-	tokensTTLName    = "tokens-ttl"
-	maxValueSizeName = "max-value-size"
+	categoryStorage     = "Storage"
+	consumerName        = "consumer-name"
+	maxValueSizeName    = "max-value-size"
+	natsReplicasName    = "nats-replicas"
+	tokensTTLName       = "tokens-ttl"
+	storageHostName     = "storage-host"
+	storageUserName     = "storage-user"
+	storagePasswordName = "storage-password"
 )
 
 type Storage struct {
-	Consumer     string
-	MaxValueSize int32
-	NatsHost     string
-	NatsReplicas int
-	TokensTTL    time.Duration
+	Consumer        string
+	MaxValueSize    int32
+	NatsReplicas    int
+	TokensTTL       time.Duration
+	StorageHost     string
+	StorageUser     string
+	StoragePassword string
 }
 
 func (f *FlagBuilder) StorageFlags(st *Storage) *FlagBuilder {
@@ -49,14 +53,6 @@ func (f *FlagBuilder) StorageFlags(st *Storage) *FlagBuilder {
 			Usage:       "Maximum message size in bytes",
 			Value:       8 * 1024 * 1024,
 		},
-		&cli.StringFlag{
-			Category:    categoryStorage,
-			Destination: &st.NatsHost,
-			Name:        natsHostName,
-			Sources:     envWrapper("NATS_HOST"),
-			Usage:       "hostname for the target Nats server (e.g., nats://user:password@server:port)",
-			Required:    true,
-		},
 		&cli.IntFlag{
 			Category:    categoryStorage,
 			Destination: &st.NatsReplicas,
@@ -70,8 +66,32 @@ func (f *FlagBuilder) StorageFlags(st *Storage) *FlagBuilder {
 			Destination: &st.TokensTTL,
 			Name:        tokensTTLName,
 			Sources:     envWrapper("TOKENS_TTL"),
-			Usage:       "Maximum time to live for a token cache entry before refresh required",
+			Usage:       "Maximum time to live for a token/session related cache before refresh required",
 			Value:       5 * time.Minute,
+		},
+		&cli.StringFlag{
+			Category:    categoryStorage,
+			Destination: &st.StorageHost,
+			Name:        storageHostName,
+			Sources:     envWrapper("STORAGE_HOST"),
+			Usage:       "hostname for the target storage server (e.g., server:port)",
+			Required:    true,
+		},
+		&cli.StringFlag{
+			Category:    categoryStorage,
+			Destination: &st.StorageUser,
+			Name:        storageUserName,
+			Sources:     envWrapper("STORAGE_USER"),
+			Usage:       "username for the target storage server",
+			Required:    false,
+		},
+		&cli.StringFlag{
+			Category:    categoryStorage,
+			Destination: &st.StoragePassword,
+			Name:        storagePasswordName,
+			Sources:     envWrapper("STORAGE_PASSWORD"),
+			Usage:       "password for the target storage server",
+			Required:    false,
 		},
 	}...)
 
