@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.1 (September 3, 2026)
+
+### Bug & Development Fixes
+
+* Fix image release tags
+  ([!18](https://github.com/llnl/wormhole-holepunch/pull/18))
+
 ## v0.2.0 (September 1, 2026)
 
 ### Admin Changes
