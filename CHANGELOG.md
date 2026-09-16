@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.2 (September 16, 2026)
+
+### Bug & Development Fixes
+
+* Utilize correct CommunityID in subtoken workflow
+  ([!19](https://github.com/llnl/wormhole-holepunch/pull/19))
+
 ## v0.2.1 (September 3, 2026)
 
 ### Bug & Development Fixes

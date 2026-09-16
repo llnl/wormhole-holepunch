@@ -47,7 +47,7 @@ func Test_internal_SubtokenFlow(t *testing.T) {
 	}{
 		"no community id": {
 			req: requests.RequestDetails{
-				Headers: map[string]string{},
+				CommunityID: "",
 			},
 			tknCtx: wormhole.TokenContext{
 				TokenID: parentID,
@@ -62,9 +62,7 @@ func Test_internal_SubtokenFlow(t *testing.T) {
 		},
 		"existing subtoken": {
 			req: requests.RequestDetails{
-				Headers: map[string]string{
-					keys.CommunityHeader: "foo",
-				},
+				CommunityID: "foo",
 			},
 			tknCtx: wormhole.TokenContext{
 				TokenID: subID,
@@ -99,9 +97,7 @@ func Test_internal_SubtokenFlow(t *testing.T) {
 				}(),
 			},
 			req: requests.RequestDetails{
-				Headers: map[string]string{
-					keys.CommunityHeader: "foo",
-				},
+				CommunityID: "foo",
 			},
 			tknCtx: wormhole.TokenContext{
 				TokenID: parentID,
@@ -148,9 +144,7 @@ func Test_internal_SubtokenFlow(t *testing.T) {
 				}(),
 			},
 			req: requests.RequestDetails{
-				Headers: map[string]string{
-					keys.CommunityHeader: "foo",
-				},
+				CommunityID: "foo",
 			},
 			tknCtx: wormhole.TokenContext{
 				TokenID: parentID,
@@ -194,9 +188,7 @@ func Test_internal_SubtokenFlow(t *testing.T) {
 				}(),
 			},
 			req: requests.RequestDetails{
-				Headers: map[string]string{
-					keys.CommunityHeader: "foo",
-				},
+				CommunityID: "foo",
 			},
 			tknCtx: wormhole.TokenContext{
 				TokenID: parentID,

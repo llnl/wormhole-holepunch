@@ -46,8 +46,7 @@ func (i internal) SubtokenFlow(
 	ctx, endSpan := ll.StartSpan(ctx, "SubtokenFlow")
 	defer endSpan()
 
-	externalID := req.Headers[keys.CommunityHeader]
-	if externalID == "" {
+	if req.CommunityID == "" {
 		// This request is not part of a community so any subtoken
 		// creation will not be required.
 		return "", nil
@@ -56,10 +55,10 @@ func (i internal) SubtokenFlow(
 	ll.InfoCtx(
 		ctx,
 		"community identified",
-		ll.StringArg("externalID", externalID),
+		ll.StringArg("externalID", req.CommunityID),
 	)
 
-	if tknCtx.Payload.ExternalID == externalID && tknCtx.Payload.ParentID != "" {
+	if tknCtx.Payload.ExternalID == req.CommunityID && tknCtx.Payload.ParentID != "" {
 		// This implies that validated token is a subtoken, thus we never
 		// want to generate a new subtoken. Instead we pass it back along.
 		ll.DebugCtx(
@@ -78,7 +77,7 @@ func (i internal) SubtokenFlow(
 	)
 
 	cs := subtokenCache{}
-	key := keys.WormholeAccessSubtoken(tknCtx.Payload.TokenID, externalID)
+	key := keys.WormholeAccessSubtoken(tknCtx.Payload.TokenID, req.CommunityID)
 	now := time.Now()
 
 	err := i.kvStore.Get(ctx, key, &cs)
@@ -101,7 +100,7 @@ func (i internal) SubtokenFlow(
 		}
 	}
 
-	return i.generateSubToken(ctx, ll, tknCtx, externalID, key)
+	return i.generateSubToken(ctx, ll, tknCtx, req.CommunityID, key)
 }
 
 //
