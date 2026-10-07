@@ -63,6 +63,30 @@ func Test_Initialize(t *testing.T) {
 		assert.Equal(t, "https://oauth.example.com/oauth2/start", got.(internal).oauth2RedirectURL.String())
 		assert.Equal(t, "https://oauth.example.com/oauth2/auth", got.(internal).oauth2AuthURL.String())
 	})
+
+	t.Run("oauth2proxy redirect override", func(t *testing.T) {
+		got := Initialize(
+			&aescipher.NoopCipher{},
+			nil,
+			logs.InitializeDiscard(),
+			args.TokenService{
+				TokenHost:        "https://example.com/",
+				OauthProxy:       "https://oauth.example.com",
+				OauthRedirectURL: "https://login.example.com/custom/start?prompt=login",
+			},
+		).(internal)
+
+		assert.Equal(t, "https://login.example.com/custom/start?prompt=login", got.oauth2RedirectURL.String())
+		assert.Equal(t, "https://oauth.example.com/oauth2/auth", got.oauth2AuthURL.String())
+		assert.Equal(t,
+			"https://login.example.com/custom/start?prompt=login&rd=https%3A%2F%2Fapp.example.com%2Fpage",
+			got.constructProxyRedirect(requests.RequestDetails{
+				Scheme: "https",
+				Host:   "app.example.com",
+				Path:   "/page",
+			}),
+		)
+	})
 }
 
 func Test_internal_RequestHeader(t *testing.T) {

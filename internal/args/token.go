@@ -13,6 +13,7 @@ const (
 	tokenHeaderName       = "token-header"
 	tokenHeaderDebugName  = "token-header-debug"
 	oauthProxyName        = "oauth-proxy"         //nolint:gosec
+	oauthRedirectURLName  = "oauth-redirect-url"  //nolint:gosec
 	subtokenPathName      = "subtoken-path"       //nolint:gosec
 	subtokenHeaderName    = "subtoken-header"     //nolint:gosec
 	tokenServiceAdminName = "token-service-admin" //nolint:gosec
@@ -31,7 +32,8 @@ type TokenService struct {
 	// OauthProxy target URL for interactions with the oauth2-proxy
 	// service. Failure to include one will be used as an indication that
 	// the oauth2 code flow should not be supported.
-	OauthProxy string //nolint:gosec
+	OauthProxy       string //nolint:gosec
+	OauthRedirectURL string //nolint:gosec
 	// SubtokenHeader is the key for the request header the sub-token JWT will be set.
 	SubtokenHeader string //nolint:gosec
 	SubtokenPath   string //nolint:gosec
@@ -100,6 +102,14 @@ func (f *FlagBuilder) TokenServiceFlags(ts *TokenService) *FlagBuilder {
 			Sources:     envWrapper("OAUTH_PROXY"),
 			Name:        oauthProxyName,
 			Usage:       "URL used when OAuth flow if support required",
+		},
+		&cli.StringFlag{
+			Action:      validateURLAction,
+			Destination: &ts.OauthRedirectURL,
+			Category:    categoryTokens,
+			Sources:     envWrapper("OAUTH_REDIRECT_URL"),
+			Name:        oauthRedirectURLName,
+			Usage:       "Optional complete OAuth login redirect URL; defaults to the OAuth proxy URL plus /oauth2/start",
 		},
 		&cli.StringFlag{
 			Category:    categoryTokens,

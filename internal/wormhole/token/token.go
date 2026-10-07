@@ -92,6 +92,10 @@ func Initialize(
 
 	if i.oauth2Enabled {
 		i.oauth2RedirectURL = buildRedirectURL(tokenSvcArgs.OauthProxy)
+		if tokenSvcArgs.OauthRedirectURL != "" {
+			i.oauth2RedirectURL, _ = url.Parse(tokenSvcArgs.OauthRedirectURL)
+		}
+
 		i.oauth2AuthURL = buildAuthURL(tokenSvcArgs.OauthProxy)
 	}
 
