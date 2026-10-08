@@ -53,6 +53,7 @@ func Test_TokenServiceFlags(t *testing.T) {
 			"--" + tokenServiceAdminName, "admin-token-override",
 			"--" + oauthExchangePathName, "/exchange/oauth",
 			"--" + oauthProxyName, "http://oauth-proxy.example.test",
+			"--" + oauthRedirectURLName, "https://login.example.test/oauth2/start",
 			"--" + subtokenHeaderName, "x-custom-subtoken",
 			"--" + subtokenPathName, "/admin/subtoken",
 			"--" + devHostHeaderName, "x-dev-host",
@@ -68,6 +69,7 @@ func Test_TokenServiceFlags(t *testing.T) {
 		assert.Equal(t, "admin-token-override", ts.TokenServiceAdmin)
 		assert.Equal(t, "/exchange/oauth", ts.OauthExchangePath)
 		assert.Equal(t, "http://oauth-proxy.example.test", ts.OauthProxy)
+		assert.Equal(t, "https://login.example.test/oauth2/start", ts.OauthRedirectURL)
 		assert.Equal(t, "x-custom-subtoken", ts.SubtokenHeader)
 		assert.Equal(t, "/admin/subtoken", ts.SubtokenPath)
 		assert.Equal(t, "x-dev-host", ts.DevHostHeader)

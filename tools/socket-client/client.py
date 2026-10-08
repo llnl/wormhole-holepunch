@@ -10,7 +10,7 @@ def on_message(data):
     print(f"Received: {data}")
 
 headers = {
-    "X-Token": "foo",
+    "X-Token": "c520c08c-0325-48c4-8bd1-57bde8c7c382.foo",
 }
 sio.connect("http://localhost:3128", headers=headers, transports=["websocket"])
 
