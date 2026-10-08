@@ -34,6 +34,16 @@ securely (and preferably in-memory) we will take steps to
 encrypt tokens being stored. But please note that these cannot
 be stored in a one-way hash.
 
+## Startup
+
+Token/session bucket and route-stream initialization retries transient NATS
+request timeouts, missing responders, and disconnections up to five times,
+waiting five seconds between attempts. This allows NATS to finish starting
+without immediately restarting Holepunch. Cancellation or a caller deadline
+stops the retries; other errors, including invalid configuration and
+authorization failures, are returned without retrying. Normal cache reads and
+writes are unchanged.
+
 ## Webhooks
 
 Since Holepunch is designed to operate relatively independently
