@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.2.3 (October 8, 2026)
+
+### Admin Changes
+
+* Optional `OAUTH_REDIRECT_URL` configuration
+  ([!23](https://github.com/llnl/wormhole-holepunch/pull/23))
+
+### Bug & Development Fixes
+
+* Bump google.golang.org/grpc to *v1.83.2*
+  ([!25](https://github.com/llnl/wormhole-holepunch/pull/25))
+* Bump go.opentelemetry.io/otel to v1.45.0
+  ([!24](https://github.com/llnl/wormhole-holepunch/pull/24))
+
 ## v0.2.2 (September 16, 2026)
 
 ### Bug & Development Fixes
