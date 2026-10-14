@@ -211,6 +211,20 @@ func Test_computeChecksum(t *testing.T) {
 		assert.Equal(t, computeChecksum(data), computeChecksum(data))
 	})
 
+	t.Run("deterministic for inputs containing maps", func(t *testing.T) {
+		data := map[string]registry.ProxyControls{
+			"route-1": {
+				RequestHeaders: map[string]string{"a": "1", "b": "2", "c": "3", "d": "4"},
+				AuthzContext:   map[string]string{"e": "5", "f": "6", "g": "7", "h": "8"},
+			},
+		}
+
+		expected := computeChecksum(data)
+		for range 50 {
+			assert.Equal(t, expected, computeChecksum(data))
+		}
+	})
+
 	t.Run("different inputs produce different checksums", func(t *testing.T) {
 		a := map[string]registry.ProxyControls{"r1": {CommunityID: "x"}}
 		b := map[string]registry.ProxyControls{"r1": {CommunityID: "y"}}

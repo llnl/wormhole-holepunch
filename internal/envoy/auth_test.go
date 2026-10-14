@@ -59,7 +59,7 @@ func Test_authServer_establishReqDetails(t *testing.T) {
 				"x-token": "tok-abc",
 			},
 			map[string]string{
-				keys.PikoHeader:           "route-123",
+				keys.RouteIDHeader:           "route-123",
 				keys.WormholeHostHeader:   "api.example.com",
 				keys.WormholeSchemeHeader: "https",
 				keys.CommunityHeader:      "comm-456",

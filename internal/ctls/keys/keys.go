@@ -17,16 +17,18 @@ const (
 	CookieHeader                 = "cookie"
 	CommunityHeader              = "x-wormhole-community"
 	Oauth2ProxyAccessTokenHeader = "x-auth-request-access-token" // nolint: gosec
-	PikoHeader                   = "x-piko-endpoint"
 	RequestIDHeader              = "x-request-id"
-	SetCookieHeader              = "set-cookie"
-	TraceparentHeader            = "traceparent"
-	VersionHeader                = "x-holepunch-version"
-	XForwardHostHeader           = "x-forwarded-host"
-	XForwardProtoHeader          = "x-forwarded-proto"
-	XForwardURIHeader            = "x-forwarded-uri"
-	WormholeHostHeader           = "x-wormhole-host"
-	WormholeSchemeHeader         = "x-wormhole-scheme"
+	// RouteIDHeader identifies the registry route a request should be directed to. The
+	// value is retained for compatibility with the upstream tunnel (Piko).
+	RouteIDHeader        = "x-piko-endpoint"
+	SetCookieHeader      = "set-cookie"
+	TraceparentHeader    = "traceparent"
+	VersionHeader        = "x-holepunch-version"
+	XForwardHostHeader   = "x-forwarded-host"
+	XForwardProtoHeader  = "x-forwarded-proto"
+	XForwardURIHeader    = "x-forwarded-uri"
+	WormholeHostHeader   = "x-wormhole-host"
+	WormholeSchemeHeader = "x-wormhole-scheme"
 )
 
 // DefaultRemovableHeaders returns a list of headers that are considered removable from
@@ -36,7 +38,7 @@ func DefaultRemovableHeaders() []string {
 	return []string{
 		CommunityHeader,
 		Oauth2ProxyAccessTokenHeader,
-		PikoHeader,
+		RouteIDHeader,
 		VersionHeader,
 		WormholeHostHeader,
 		WormholeSchemeHeader,

@@ -276,7 +276,7 @@ func (i *internal) identifyID(req requests.RequestDetails) (string, *errs.Status
 		// control the headers before auth is requested. We want to make sure
 		// theses are logged so we can act upon such bugs quickly.
 		return "", errs.SimpleInternalErr(
-			fmt.Errorf("no %s found in request", keys.PikoHeader),
+			fmt.Errorf("no %s found in request", keys.RouteIDHeader),
 		)
 	}
 
@@ -313,6 +313,7 @@ func (i *internal) updateCtls(sources []RawSource) {
 			// set for the proxy driven by the route configuration.
 			RequestHeaders: map[string]string{},
 			CommunityID:    rs.CommunityID,
+			AuthzContext:   authzContext(rs),
 			PrefixRewrite:  rs.PrefixRewrite,
 		}
 
@@ -326,6 +327,22 @@ func (i *internal) updateCtls(sources []RawSource) {
 	i.proxyCtls = proxyCtls
 	i.redirectAllow = redirectAllow
 	i.mu.Unlock()
+}
+
+// authzContext establishes the ext_authz context extensions for the route. The
+// community is only included when the route is associated with one.
+func authzContext(rs RawSource) map[string]string {
+	ctxExt := map[string]string{
+		keys.RouteIDHeader:           rs.ID,
+		keys.WormholeHostHeader:   rs.Source.URL.Host,
+		keys.WormholeSchemeHeader: rs.Source.URL.Scheme,
+	}
+
+	if rs.CommunityID != "" {
+		ctxExt[keys.CommunityHeader] = rs.CommunityID
+	}
+
+	return ctxExt
 }
 
 //

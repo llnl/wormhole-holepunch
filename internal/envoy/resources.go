@@ -139,7 +139,7 @@ func (s *xdsServer) makeRoutes(
 ) *route.RouteConfiguration {
 	vhMappings := make(map[string]*route.VirtualHost, 0)
 
-	for routeID, v := range ctls {
+	for _, v := range ctls {
 		domainName := domain(v.Source.URL)
 
 		prefix := requests.NormalizePath(v.Source.URL)
@@ -149,7 +149,6 @@ func (s *xdsServer) makeRoutes(
 			prefix,
 			v.PrefixRewrite,
 			v,
-			routeID,
 		)
 
 		vh, found := vhMappings[domainName]
@@ -197,7 +196,6 @@ func (s *xdsServer) makeRoutes(
 func (s *xdsServer) singleRoute(
 	clusterName, prefix, prefixRewrite string,
 	ctl registry.ProxyControls,
-	routeID string,
 ) *route.Route {
 	ra := &route.Route_Route{
 		Route: &route.RouteAction{
@@ -231,7 +229,7 @@ func (s *xdsServer) singleRoute(
 		Action: ra,
 		TypedPerFilterConfig: map[string]*anypb.Any{
 			headerMutationFilter: s.requestHeaderFilterCfg(ctl.RequestHeaders),
-			authzFilter:          buildAuthzFilter(ctl, routeID),
+			authzFilter:          buildAuthzFilter(ctl.AuthzContext),
 		},
 	}
 }
@@ -255,17 +253,7 @@ func virtualHostName(domainName string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func buildAuthzFilter(ctl registry.ProxyControls, routeID string) *anypb.Any {
-	ctxExt := map[string]string{
-		keys.PikoHeader:           routeID,
-		keys.WormholeHostHeader:   ctl.Source.URL.Host,
-		keys.WormholeSchemeHeader: ctl.Source.URL.Scheme,
-	}
-
-	if ctl.CommunityID != "" {
-		ctxExt[keys.CommunityHeader] = ctl.CommunityID
-	}
-
+func buildAuthzFilter(ctxExt map[string]string) *anypb.Any {
 	return mustMarshalAny(&extauthz.ExtAuthzPerRoute{
 		// Bind host and scheme from the matched route config into context_extensions so
 		// ext_authz receives values that reflect actual routing, not client-supplied headers.
@@ -576,7 +564,7 @@ func accessLogCfg() *anypb.Any {
 							"user_agent":            {Kind: &structpb.Value_StringValue{StringValue: "%REQ(USER-AGENT)%"}},
 							"request_id":            {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-REQUEST-ID)%"}},
 							"upstream_host":         {Kind: &structpb.Value_StringValue{StringValue: "%UPSTREAM_HOST%"}},
-							"x_piko_endpoint":       {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-PIKO-ENDPOINT)%"}},
+							"route_id":              {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-PIKO-ENDPOINT)%"}},
 							"x_wormhole_community":  {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-COMMUNITY)%"}},
 							"x_wormhole_host":       {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-HOST)%"}},
 							"x_wormhole_scheme":     {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-SCHEME)%"}}},

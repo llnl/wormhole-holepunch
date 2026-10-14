@@ -28,6 +28,11 @@ type ProxyControls struct {
 	PrefixRewrite string
 	// CommunityID is the unique identifier for the community associated with the route.
 	CommunityID string
+	// AuthzContext is a key/value list of context extensions bound to the route's
+	// ext_authz check. Values are derived from the route configuration so the
+	// authorization service receives details that reflect actual routing rather
+	// than any client-supplied headers.
+	AuthzContext map[string]string
 }
 
 type Router interface {

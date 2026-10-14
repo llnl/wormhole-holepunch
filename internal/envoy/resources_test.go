@@ -340,7 +340,12 @@ func Test_xdsServer_makeRoutes(t *testing.T) {
 			"my-route-uuid": {
 				Source:      keys.URLString{URL: &url.URL{Scheme: "https", Host: "src.example.com", Path: "/api"}},
 				Destination: keys.URLString{URL: &url.URL{Scheme: "http", Host: "backend.local"}},
-				CommunityID: "comm-uuid-789",
+				AuthzContext: map[string]string{
+					keys.RouteIDHeader:        "my-route-uuid",
+					keys.WormholeHostHeader:   "src.example.com",
+					keys.WormholeSchemeHeader: "https",
+					keys.CommunityHeader:      "comm-uuid-789",
+				},
 			},
 		}
 
@@ -356,7 +361,7 @@ func Test_xdsServer_makeRoutes(t *testing.T) {
 		require.NoError(t, filterCfg.UnmarshalTo(perRoute))
 
 		ctxExt := perRoute.GetCheckSettings().GetContextExtensions()
-		assert.Equal(t, "my-route-uuid", ctxExt[keys.PikoHeader])
+		assert.Equal(t, "my-route-uuid", ctxExt[keys.RouteIDHeader])
 		assert.Equal(t, "src.example.com", ctxExt[keys.WormholeHostHeader])
 		assert.Equal(t, "https", ctxExt[keys.WormholeSchemeHeader])
 		assert.Equal(t, "comm-uuid-789", ctxExt[keys.CommunityHeader])
@@ -610,49 +615,29 @@ func Test_virtualHostName(t *testing.T) {
 }
 
 func Test_buildAuthzFilter(t *testing.T) {
-	t.Run("context extensions without community", func(t *testing.T) {
-		ctl := registry.ProxyControls{
-			Source: keys.URLString{URL: &url.URL{Scheme: "https", Host: "src.example.com"}},
+	t.Run("context extensions passed through", func(t *testing.T) {
+		ctxExt := map[string]string{
+			keys.RouteIDHeader:        "route-uuid-123",
+			keys.WormholeHostHeader:   "src.example.com",
+			keys.WormholeSchemeHeader: "https",
+			keys.CommunityHeader:      "community-uuid-456",
 		}
 
-		a := buildAuthzFilter(ctl, "route-uuid-123")
+		a := buildAuthzFilter(ctxExt)
 
 		perRoute := &extauthz.ExtAuthzPerRoute{}
 		require.NoError(t, a.UnmarshalTo(perRoute))
 
-		ctxExt := perRoute.GetCheckSettings().GetContextExtensions()
-		assert.Equal(t, "route-uuid-123", ctxExt[keys.PikoHeader])
-		assert.Equal(t, "src.example.com", ctxExt[keys.WormholeHostHeader])
-		assert.Equal(t, "https", ctxExt[keys.WormholeSchemeHeader])
-		assert.NotContains(t, ctxExt, keys.CommunityHeader)
+		assert.Equal(t, ctxExt, perRoute.GetCheckSettings().GetContextExtensions())
 	})
 
-	t.Run("community id included when set", func(t *testing.T) {
-		ctl := registry.ProxyControls{
-			Source:      keys.URLString{URL: &url.URL{Scheme: "http", Host: "src.local"}},
-			CommunityID: "community-uuid-456",
-		}
-
-		a := buildAuthzFilter(ctl, "route-id")
+	t.Run("nil context extensions", func(t *testing.T) {
+		a := buildAuthzFilter(nil)
 
 		perRoute := &extauthz.ExtAuthzPerRoute{}
 		require.NoError(t, a.UnmarshalTo(perRoute))
 
-		assert.Equal(t, "community-uuid-456", perRoute.GetCheckSettings().GetContextExtensions()[keys.CommunityHeader])
-	})
-
-	t.Run("empty community id omitted", func(t *testing.T) {
-		ctl := registry.ProxyControls{
-			Source:      keys.URLString{URL: &url.URL{Scheme: "http", Host: "src.local"}},
-			CommunityID: "",
-		}
-
-		a := buildAuthzFilter(ctl, "route-id")
-
-		perRoute := &extauthz.ExtAuthzPerRoute{}
-		require.NoError(t, a.UnmarshalTo(perRoute))
-
-		assert.NotContains(t, perRoute.GetCheckSettings().GetContextExtensions(), keys.CommunityHeader)
+		assert.Empty(t, perRoute.GetCheckSettings().GetContextExtensions())
 	})
 }
 
@@ -676,7 +661,7 @@ func Test_accessLogCfg(t *testing.T) {
 			"bytes_received", "bytes_sent", "duration",
 			"upstream_service_time", "x_forwarded_for",
 			"user_agent", "request_id", "upstream_host",
-			"x_piko_endpoint", "x_wormhole_community",
+			"route_id", "x_wormhole_community",
 			"x_wormhole_host", "x_wormhole_scheme",
 		} {
 			assert.Contains(t, fields, name, "missing access log field %q", name)
@@ -920,7 +905,7 @@ func Test_xdsServer_setHeader(t *testing.T) {
 		s := &xdsServer{ll: ll}
 
 		cases := []struct{ key, value string }{
-			{keys.PikoHeader, "route-uuid"},
+			{keys.RouteIDHeader, "route-uuid"},
 			{keys.WormholeHostHeader, "src.example.com"},
 			{keys.WormholeSchemeHeader, "https"},
 			{keys.CommunityHeader, "comm-uuid"},

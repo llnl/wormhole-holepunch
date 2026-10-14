@@ -183,7 +183,7 @@ func (i internal) setHeaders(jwt string, req requests.RequestDetails) map[string
 		// The user's initial authentication token should always be overwritten
 		// with the new and more limited scoped JWT.
 		i.tokenSvcArgs.TokenHeader: jwt,
-		keys.PikoHeader:            req.RouteID,
+		keys.RouteIDHeader:            req.RouteID,
 	}
 
 	if req.CommunityID != "" {

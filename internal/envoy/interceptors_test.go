@@ -113,7 +113,7 @@ func Test_authLogger(t *testing.T) {
 		req := &auth.CheckRequest{
 			Attributes: &auth.AttributeContext{
 				ContextExtensions: map[string]string{
-					keys.PikoHeader: "piko",
+					keys.RouteIDHeader: "piko",
 				},
 				Request: &auth.AttributeContext_Request{
 					Http: &auth.AttributeContext_HttpRequest{
