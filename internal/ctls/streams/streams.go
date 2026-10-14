@@ -110,18 +110,24 @@ func (c *Client) Close() {
 
 // InitializeTokens starts or binds the token KeyValue store using the shared Client.
 func (c *Client) InitializeTokens(ctx context.Context) (KVStore, error) {
-	return c.initializeKV(ctx, tokenBucket)
+	return initializeWithRetry(ctx, c, func() (KVStore, error) {
+		return c.initializeKV(ctx, tokenBucket)
+	})
 }
 
 // InitializeSessions starts or binds the session KeyValue store using the shared Client.
 func (c *Client) InitializeSessions(ctx context.Context) (KVStore, error) {
-	return c.initializeKV(ctx, sessionBucket)
+	return initializeWithRetry(ctx, c, func() (KVStore, error) {
+		return c.initializeKV(ctx, sessionBucket)
+	})
 }
 
 // InitializeRoutes starts the NATS stream and consumer used for route management
 // using the shared Client.
 func (c *Client) InitializeRoutes(ctx context.Context) (PubSub, error) {
-	return c.initializePubSub(ctx, routesStream, routesSubject)
+	return initializeWithRetry(ctx, c, func() (PubSub, error) {
+		return c.initializePubSub(ctx, routesStream, routesSubject)
+	})
 }
 
 //
