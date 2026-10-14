@@ -113,7 +113,7 @@ func (s *authServer) Check(ctx context.Context, req *auth.CheckRequest) (*auth.C
 
 	// Now that we've established the request is authorized, we can set the headers
 	// that can be used by the upstream services.
-	authResp.SetHeaders[keys.PikoHeader] = details.RouteID
+	authResp.SetHeaders[keys.RouteIDHeader] = details.RouteID
 	authResp.SetHeaders[keys.WormholeHostHeader] = details.Host
 	authResp.SetHeaders[keys.WormholeSchemeHeader] = details.Scheme
 
@@ -133,7 +133,7 @@ func (s *authServer) establishReqDetails(req *auth.CheckRequest) requests.Reques
 	details := requests.RequestDetails{
 		Headers:     http.GetHeaders(),
 		CommunityID: ctxExt[keys.CommunityHeader],
-		RouteID:     ctxExt[keys.PikoHeader],
+		RouteID:     ctxExt[keys.RouteIDHeader],
 		Host:        ctxExt[keys.WormholeHostHeader],
 		Scheme:      ctxExt[keys.WormholeSchemeHeader],
 	}
@@ -158,7 +158,7 @@ func (s *authServer) authLogger(
 
 	ll := s.ll.With(
 		[]slog.Attr{
-			slog.String(keys.PikoHeader, details.RouteID),
+			slog.String(keys.RouteIDHeader, details.RouteID),
 			slog.String("guid:"+keys.RequestIDHeader, http.GetHeaders()[keys.RequestIDHeader]),
 			slog.String("auth.method", http.GetMethod()),
 			slog.String("auth.path", http.GetPath()),

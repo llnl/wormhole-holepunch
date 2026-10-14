@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/gob"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"hash/crc32"
 	"net/url"
@@ -102,7 +102,8 @@ func clusterName(dst *url.URL) string {
 
 // computeChecksum generates a checksum for the current set of proxy controls to
 // assist in providing a unique version string for each snapshot. Keys are sorted
-// before encoding so the result is stable across calls with identical data.
+// before encoding so the result is stable across calls with identical data; JSON
+// is used as it also encodes nested map keys in sorted order.
 func computeChecksum(data map[string]registry.ProxyControls) string {
 	var buffer bytes.Buffer
 
@@ -113,14 +114,14 @@ func computeChecksum(data map[string]registry.ProxyControls) string {
 
 	sort.Strings(keys)
 
-	encoder := gob.NewEncoder(&buffer)
+	encoder := json.NewEncoder(&buffer)
 
 	for _, k := range keys {
 		if err := encoder.Encode(k); err != nil {
 			return "unknown"
 		}
 
-		if err := encoder.Encode(data[k]); err != nil {
+		if err := encoder.Encode(data[k]); err != nil { //nolint: musttag
 			return "unknown"
 		}
 	}

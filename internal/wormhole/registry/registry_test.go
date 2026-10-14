@@ -15,6 +15,7 @@ import (
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
@@ -27,7 +28,7 @@ const (
 	routeResponse = `[
   {
     "id": "3d6527b5-9013-4255-a7b0-fe02e57756dc",
-    "dst": "https://piko.example.com",
+    "dst": "https://route.example.com",
     "src": "https://demo-src.example.com",
 	"community_id": "4f85939f-f19d-4217-afae-701568b12221",
     "rules": {
@@ -244,6 +245,12 @@ func Test_internal_AsyncFetchSources(t *testing.T) {
 		ctls := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"]
 		assert.Len(t, ctls.RequestHeaders, 0)
 		assert.Equal(t, "4f85939f-f19d-4217-afae-701568b12221", ctls.CommunityID)
+		assert.Equal(t, map[string]string{
+			keys.RouteIDHeader:        "3d6527b5-9013-4255-a7b0-fe02e57756dc",
+			keys.WormholeHostHeader:   "demo-src.example.com",
+			keys.WormholeSchemeHeader: "https",
+			keys.CommunityHeader:      "4f85939f-f19d-4217-afae-701568b12221",
+		}, ctls.AuthzContext)
 	})
 
 	t.Run("bad response", func(t *testing.T) {
@@ -349,7 +356,7 @@ func Test_internal_AuthorizeProxy(t *testing.T) {
 				assert.Nil(t, sErr)
 			},
 		},
-		"missing piko header": {
+		"missing routeID header": {
 			req: requests.RequestDetails{
 				Scheme:  "https",
 				Path:    "",
@@ -550,6 +557,27 @@ func Test_internal_PublishSources(t *testing.T) {
 
 		ctls := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"]
 		assert.Equal(t, "4f85939f-f19d-4217-afae-701568b12221", ctls.CommunityID)
+	})
+}
+
+func Test_authzContext(t *testing.T) {
+	src, err := keys.NormalizeURL("https://src.example.com/api")
+	assert.NoError(t, err)
+
+	t.Run("context extensions without community", func(t *testing.T) {
+		got := authzContext(RawSource{ID: "route-uuid-123", Source: src})
+
+		assert.Equal(t, map[string]string{
+			keys.RouteIDHeader:        "route-uuid-123",
+			keys.WormholeHostHeader:   "src.example.com",
+			keys.WormholeSchemeHeader: "https",
+		}, got)
+	})
+
+	t.Run("community id included when set", func(t *testing.T) {
+		got := authzContext(RawSource{ID: "route-id", Source: src, CommunityID: "community-uuid-456"})
+
+		assert.Equal(t, "community-uuid-456", got[keys.CommunityHeader])
 	})
 }
 
