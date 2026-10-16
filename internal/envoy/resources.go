@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/url"
+	"strings"
 
 	accesslog "github.com/envoyproxy/go-control-plane/envoy/config/accesslog/v3"
 	cluster "github.com/envoyproxy/go-control-plane/envoy/config/cluster/v3"
@@ -70,6 +71,18 @@ const (
 	authzFilter          = "envoy.filters.http.ext_authz"
 	headerMutationFilter = "envoy.filters.http.header_mutation"
 	httpRouteFilter      = "http-router"
+
+	// Route metadata namespace/keys used to surface route details in the access log via
+	// %METADATA(ROUTE:...)%. Unlike the headers set by ext_authz, route metadata is
+	// available regardless of whether authorization ran (e.g. noauth) or succeeded.
+	holepunchMetadataNamespace = "holepunch"
+	routeIDMetadataKey         = "route_id"
+	hostMetadataKey            = "host"
+	schemeMetadataKey          = "scheme"
+	communityMetadataKey       = "community"
+	featuresMetadataKey        = "features"
+
+	featureNoAuth = "noauth"
 )
 
 // makeClusters generates a list of Envoy cluster resources based on the ProxyControls configuration.
@@ -226,12 +239,70 @@ func (s *xdsServer) singleRoute(
 				Prefix: prefix,
 			},
 		},
-		Action: ra,
+		Action:   ra,
+		Metadata: routeMetadata(ctl),
 		TypedPerFilterConfig: map[string]*anypb.Any{
 			headerMutationFilter: s.requestHeaderFilterCfg(ctl.RequestHeaders),
-			authzFilter:          buildAuthzFilter(ctl.AuthzContext),
+			authzFilter:          routeAuthzFilter(ctl),
 		},
 	}
+}
+
+// routeFeatures lists the non-standard behaviors enabled for a route. An empty result
+// indicates the route follows the default proxy behavior.
+func routeFeatures(ctl registry.ProxyControls) []string {
+	var features []string
+
+	if ctl.NoAuth {
+		features = append(features, featureNoAuth)
+	}
+
+	return features
+}
+
+// routeMetadata attaches the route's identifying details so they can be referenced by the
+// access log. Optional values (community, features) are only included when defined, with
+// features represented as a comma separated string.
+func routeMetadata(ctl registry.ProxyControls) *core.Metadata {
+	fields := map[string]*structpb.Value{
+		routeIDMetadataKey: structpb.NewStringValue(ctl.AuthzContext[keys.RouteIDHeader]),
+		hostMetadataKey:    structpb.NewStringValue(ctl.Source.URL.Host),
+		schemeMetadataKey:  structpb.NewStringValue(ctl.Source.URL.Scheme),
+	}
+
+	if ctl.CommunityID != "" {
+		fields[communityMetadataKey] = structpb.NewStringValue(ctl.CommunityID)
+	}
+
+	if features := routeFeatures(ctl); len(features) > 0 {
+		fields[featuresMetadataKey] = structpb.NewStringValue(strings.Join(features, ","))
+	}
+
+	return &core.Metadata{
+		FilterMetadata: map[string]*structpb.Struct{
+			holepunchMetadataNamespace: {Fields: fields},
+		},
+	}
+}
+
+// routeMetadataFormat builds the access log command operator for a holepunch route metadata key.
+func routeMetadataFormat(key string) string {
+	return "%METADATA(ROUTE:" + holepunchMetadataNamespace + ":" + key + ")%"
+}
+
+// routeAuthzFilter establishes the per-route ext_authz configuration. Routes flagged
+// with NoAuth (admin defined static sources only) disable the filter entirely, all
+// others bind the route's context extensions into the check.
+func routeAuthzFilter(ctl registry.ProxyControls) *anypb.Any {
+	if ctl.NoAuth {
+		return mustMarshalAny(&extauthz.ExtAuthzPerRoute{
+			Override: &extauthz.ExtAuthzPerRoute_Disabled{
+				Disabled: true,
+			},
+		})
+	}
+
+	return buildAuthzFilter(ctl.AuthzContext)
 }
 
 // domain extracts the domain name from the provided URL. If the URL points to localhost,
@@ -541,12 +612,14 @@ func (s *xdsServer) extAuthAllowedHeaders() *matcher.ListStringMatcher {
 }
 
 // accessLogCfg creates an Envoy file access log configuration in JSON format. Logs include request
-// metadata such as start time, method, path, response code, and more.
+// metadata such as start time, method, path, response code, and more. Fields that evaluate
+// to null (e.g. holepunch_features on a standard route) are omitted from the entry.
 func accessLogCfg() *anypb.Any {
 	fileAccessLog := &fileaccesslog.FileAccessLog{
 		Path: "/dev/stdout",
 		AccessLogFormat: &fileaccesslog.FileAccessLog_LogFormat{
 			LogFormat: &core.SubstitutionFormatString{
+				OmitEmptyValues: true,
 				Format: &core.SubstitutionFormatString_JsonFormat{
 					JsonFormat: &structpb.Struct{
 						Fields: map[string]*structpb.Value{
@@ -564,10 +637,11 @@ func accessLogCfg() *anypb.Any {
 							"user_agent":            {Kind: &structpb.Value_StringValue{StringValue: "%REQ(USER-AGENT)%"}},
 							"request_id":            {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-REQUEST-ID)%"}},
 							"upstream_host":         {Kind: &structpb.Value_StringValue{StringValue: "%UPSTREAM_HOST%"}},
-							"route_id":              {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-PIKO-ENDPOINT)%"}},
-							"x_wormhole_community":  {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-COMMUNITY)%"}},
-							"x_wormhole_host":       {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-HOST)%"}},
-							"x_wormhole_scheme":     {Kind: &structpb.Value_StringValue{StringValue: "%REQ(X-WORMHOLE-SCHEME)%"}}},
+							"route_id":              structpb.NewStringValue(routeMetadataFormat(routeIDMetadataKey)),
+							"x_wormhole_community":  structpb.NewStringValue(routeMetadataFormat(communityMetadataKey)),
+							"x_wormhole_host":       structpb.NewStringValue(routeMetadataFormat(hostMetadataKey)),
+							"x_wormhole_scheme":     structpb.NewStringValue(routeMetadataFormat(schemeMetadataKey)),
+							"holepunch_features":    structpb.NewStringValue(routeMetadataFormat(featuresMetadataKey))},
 					},
 				},
 			},

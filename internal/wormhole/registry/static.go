@@ -10,7 +10,17 @@ import (
 )
 
 type StaticSource struct {
-	Sources []RawSource `yaml:"sources"`
+	Sources []staticRawSource `json:"sources" yaml:"sources"`
+}
+
+// staticRawSource extends the RawSource with admin only configurations that are
+// only available in the static file. Since sigs.k8s.io/yaml decodes via the json
+// tags, these fields cannot live directly on the RawSource without also exposing
+// them to the route registry.
+type staticRawSource struct {
+	RawSource
+
+	NoAuth bool `json:"no_auth" yaml:"no_auth"`
 }
 
 // loadStaticFile parses a proposed static mappings files, decoding any
@@ -35,5 +45,18 @@ func loadStaticFile(ll logs.Logger, filename string) ([]RawSource, error) {
 
 	ll.Info("static configurations found in: " + filename)
 
-	return static.Sources, nil
+	sources := make([]RawSource, 0, len(static.Sources))
+
+	for _, s := range static.Sources {
+		rs := s.RawSource
+		rs.NoAuth = s.NoAuth
+
+		if rs.NoAuth {
+			ll.Warn("authorization disabled for static source: " + rs.ID)
+		}
+
+		sources = append(sources, rs)
+	}
+
+	return sources, nil
 }

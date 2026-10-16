@@ -33,6 +33,9 @@ type ProxyControls struct {
 	// authorization service receives details that reflect actual routing rather
 	// than any client-supplied headers.
 	AuthzContext map[string]string
+	// NoAuth indicates the ext_authz filter must be disabled for the route. Only
+	// admin defined static sources are able to establish this.
+	NoAuth bool
 }
 
 type Router interface {

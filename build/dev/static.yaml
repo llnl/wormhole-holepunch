@@ -1,6 +1,6 @@
 sources: [
   {
-    id: "360A2E52-4552-437E-BB05-118B51B5135D",
+    id: "e58eb6b4-2308-4080-a24a-1562b6007cac",
     src: "http://envoy.holepunch.localwormhole:3128/whoami",
     dst: "http://mock-api:9001",
     rules: {
@@ -8,5 +8,11 @@ sources: [
         users: [bar, foo]
       }
     }
+  },
+  {
+    id: "c4f5af47-2e71-4a3a-a4c4-1710f7377bb3",
+    src: "http://localhost:3128/ping",
+    dst: "http://mock-api:9001",
+    no_auth: true
   }
 ]
