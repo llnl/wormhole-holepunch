@@ -63,6 +63,19 @@ dev: build-linux-dev dev-down dev-permissions
 dev-down:
 	${CONTAINER_RUNTIME} compose -p holepunch-dev -f ${ROOT_DIR}/build/dev/compose.yaml down
 
+DEV_DATA_DIRS := nats-data redis-data
+DEV_CLEAN_IMAGE ?= docker.io/library/golang:${GO_SEMVER}
+
+# Data directories are written by the containers and may be owned by root (or a mapped
+# UID), so the contents are removed from within a container rather than the host.
+.PHONY: dev-clean #D Shutdown the local environment and remove all persisted NATS/Redis data.
+dev-clean: dev-down
+	${CONTAINER_RUNTIME} run --rm \
+		-v ${ROOT_DIR}/build/dev:/dev-data:z \
+		-w /dev-data \
+		${DEV_CLEAN_IMAGE} \
+		sh -c 'for d in $(DEV_DATA_DIRS); do if [ -d "$$d" ]; then find "$$d" -mindepth 1 -delete; fi; done'
+
 .PHONY: dev-stats #D Identify resource usage of local podman-compose environment.
 dev-stats:
 	${CONTAINER_RUNTIME} compose -p holepunch-dev -f ${ROOT_DIR}/build/dev/compose.yaml stats

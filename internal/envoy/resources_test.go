@@ -16,6 +16,7 @@ import (
 	hcm "github.com/envoyproxy/go-control-plane/envoy/extensions/filters/network/http_connection_manager/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
@@ -641,6 +642,75 @@ func Test_buildAuthzFilter(t *testing.T) {
 	})
 }
 
+func Test_routeAuthzFilter(t *testing.T) {
+	ctxExt := map[string]string{keys.RouteIDHeader: "route-uuid-123"}
+
+	t.Run("authz enabled by default", func(t *testing.T) {
+		a := routeAuthzFilter(registry.ProxyControls{AuthzContext: ctxExt})
+
+		perRoute := &extauthz.ExtAuthzPerRoute{}
+		require.NoError(t, a.UnmarshalTo(perRoute))
+
+		assert.False(t, perRoute.GetDisabled())
+		assert.Equal(t, ctxExt, perRoute.GetCheckSettings().GetContextExtensions())
+	})
+
+	t.Run("no auth disables authz", func(t *testing.T) {
+		a := routeAuthzFilter(registry.ProxyControls{AuthzContext: ctxExt, NoAuth: true})
+
+		perRoute := &extauthz.ExtAuthzPerRoute{}
+		require.NoError(t, a.UnmarshalTo(perRoute))
+
+		assert.True(t, perRoute.GetDisabled())
+		assert.Nil(t, perRoute.GetCheckSettings())
+	})
+}
+
+func Test_xdsServer_makeRoutes_NoAuth(t *testing.T) {
+	s := &xdsServer{}
+
+	ctls := map[string]registry.ProxyControls{
+		"authz": {
+			Source:       keys.URLString{URL: &url.URL{Scheme: "http", Host: "source.local", Path: "/authz"}},
+			Destination:  keys.URLString{URL: &url.URL{Scheme: "http", Host: "destination.local"}},
+			AuthzContext: map[string]string{keys.RouteIDHeader: "authz"},
+		},
+		"noauth": {
+			Source:       keys.URLString{URL: &url.URL{Scheme: "http", Host: "source.local", Path: "/noauth/path"}},
+			Destination:  keys.URLString{URL: &url.URL{Scheme: "http", Host: "destination.local"}},
+			AuthzContext: map[string]string{keys.RouteIDHeader: "noauth"},
+			NoAuth:       true,
+		},
+	}
+
+	got := s.makeRoutes("test-route", ctls)
+
+	require.Len(t, got.GetVirtualHosts(), 1)
+	require.Len(t, got.GetVirtualHosts()[0].GetRoutes(), 2)
+
+	for _, r := range got.GetVirtualHosts()[0].GetRoutes() {
+		perRoute := &extauthz.ExtAuthzPerRoute{}
+		require.NoError(t, r.GetTypedPerFilterConfig()[authzFilter].UnmarshalTo(perRoute))
+
+		// The header mutation filter is unrelated to authz and must always remain.
+		assert.Contains(t, r.GetTypedPerFilterConfig(), headerMutationFilter)
+
+		switch r.GetMatch().GetPrefix() {
+		case "/noauth/path":
+			assert.True(t, perRoute.GetDisabled())
+			assert.Equal(t, "noauth", r.GetMetadata().GetFilterMetadata()[holepunchMetadataNamespace].
+				GetFields()[featuresMetadataKey].GetStringValue())
+		case "/authz":
+			assert.False(t, perRoute.GetDisabled())
+			assert.NotContains(t, r.GetMetadata().GetFilterMetadata()[holepunchMetadataNamespace].GetFields(),
+				featuresMetadataKey)
+			assert.Equal(t, "authz", perRoute.GetCheckSettings().GetContextExtensions()[keys.RouteIDHeader])
+		default:
+			t.Errorf("unexpected route prefix: %s", r.GetMatch().GetPrefix())
+		}
+	}
+}
+
 func Test_accessLogCfg(t *testing.T) {
 	t.Run("writes to stdout", func(t *testing.T) {
 		fal := &fileaccesslog.FileAccessLog{}
@@ -663,9 +733,62 @@ func Test_accessLogCfg(t *testing.T) {
 			"user_agent", "request_id", "upstream_host",
 			"route_id", "x_wormhole_community",
 			"x_wormhole_host", "x_wormhole_scheme",
+			"holepunch_features",
 		} {
 			assert.Contains(t, fields, name, "missing access log field %q", name)
 		}
+	})
+
+	t.Run("route details read from route metadata", func(t *testing.T) {
+		fal := &fileaccesslog.FileAccessLog{}
+		require.NoError(t, accessLogCfg().UnmarshalTo(fal))
+
+		fields := fal.GetLogFormat().GetJsonFormat().GetFields()
+
+		for name, want := range map[string]string{
+			"route_id":             "%METADATA(ROUTE:holepunch:route_id)%",
+			"x_wormhole_host":      "%METADATA(ROUTE:holepunch:host)%",
+			"x_wormhole_scheme":    "%METADATA(ROUTE:holepunch:scheme)%",
+			"x_wormhole_community": "%METADATA(ROUTE:holepunch:community)%",
+			"holepunch_features":   "%METADATA(ROUTE:holepunch:features)%",
+		} {
+			assert.Equal(t, want, fields[name].GetStringValue(), "unexpected format for %q", name)
+		}
+	})
+}
+
+func Test_routeMetadata(t *testing.T) {
+	base := registry.ProxyControls{
+		Source:       keys.URLString{URL: &url.URL{Scheme: "https", Host: "source.local:8443", Path: "/ping"}},
+		AuthzContext: map[string]string{keys.RouteIDHeader: "route-uuid-123"},
+	}
+
+	fieldsOf := func(ctl registry.ProxyControls) map[string]*structpb.Value {
+		return routeMetadata(ctl).GetFilterMetadata()[holepunchMetadataNamespace].GetFields()
+	}
+
+	t.Run("route details always included", func(t *testing.T) {
+		fields := fieldsOf(base)
+
+		assert.Equal(t, "route-uuid-123", fields[routeIDMetadataKey].GetStringValue())
+		assert.Equal(t, "source.local:8443", fields[hostMetadataKey].GetStringValue())
+		assert.Equal(t, "https", fields[schemeMetadataKey].GetStringValue())
+		assert.NotContains(t, fields, communityMetadataKey)
+		assert.NotContains(t, fields, featuresMetadataKey)
+	})
+
+	t.Run("community included when defined", func(t *testing.T) {
+		ctl := base
+		ctl.CommunityID = "community-uuid-456"
+
+		assert.Equal(t, "community-uuid-456", fieldsOf(ctl)[communityMetadataKey].GetStringValue())
+	})
+
+	t.Run("noauth feature", func(t *testing.T) {
+		ctl := base
+		ctl.NoAuth = true
+
+		assert.Equal(t, "noauth", fieldsOf(ctl)[featuresMetadataKey].GetStringValue())
 	})
 }
 

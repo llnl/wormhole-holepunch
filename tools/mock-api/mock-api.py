@@ -4,6 +4,7 @@ import base64
 import flask
 import json
 import logging
+from datetime import datetime, timezone
 from flask import request, jsonify, Response
 from urllib.parse import unquote
 
@@ -145,5 +146,9 @@ def subtoken(id):
 def whoami():
     headers = dict(request.headers)
     return jsonify(headers)
+
+@app.route('/ping', methods=['GET'])
+def ping():
+    return jsonify({"time": datetime.now(timezone.utc).isoformat()})
 
 app.run(host='0.0.0.0', port=9001)

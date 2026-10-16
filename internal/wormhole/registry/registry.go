@@ -315,6 +315,7 @@ func (i *internal) updateCtls(sources []RawSource) {
 			CommunityID:    rs.CommunityID,
 			AuthzContext:   authzContext(rs),
 			PrefixRewrite:  rs.PrefixRewrite,
+			NoAuth:         rs.NoAuth,
 		}
 
 		if rs.Source.Key != "" {

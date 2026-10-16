@@ -525,6 +525,116 @@ func Test_internal_RefreshControls(t *testing.T) {
 		assert.GreaterOrEqual(t, len(i.authCtls), 1)
 		assert.GreaterOrEqual(t, len(i.FetchProxyControls()), 3)
 	})
+
+	t.Run("no_auth ignored from msg", func(t *testing.T) {
+		m := mockJetstreamMsg{
+			b: []byte(`[{
+				"id": "3d6527b5-9013-4255-a7b0-fe02e57756dc",
+				"dst": "https://foo.example.com",
+				"src": "https://demo-src.example.com",
+				"no_auth": true,
+				"NoAuth": true
+			}]`),
+		}
+
+		i.RefreshControls(m)
+
+		ctl, found := i.proxyCtls["3d6527b5-9013-4255-a7b0-fe02e57756dc"]
+		assert.True(t, found)
+		assert.False(t, ctl.NoAuth)
+	})
+}
+
+func Test_internal_NoAuth(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	maxRetry = 1
+	waitRetry = 1 * time.Millisecond
+
+	const (
+		registryID = "3d6527b5-9013-4255-a7b0-fe02e57756dc"
+		staticID   = "4ff69450-30eb-489b-bb90-15f25cd88c7d"
+	)
+
+	t.Run("registry request cannot set no_auth", func(t *testing.T) {
+		i := establishTestRouter(t, ctrl).(*internal)
+
+		client := mock_requests.NewMockClient(ctrl)
+		client.EXPECT().GetJSON(gomock.Any(), tarURL, map[string]string{}, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ string, _ map[string]string, v any) *requests.RequestFailedError {
+				json.Unmarshal([]byte(`[{
+					"id": "`+registryID+`",
+					"dst": "https://route.example.com",
+					"src": "https://demo-src.example.com",
+					"no_auth": true
+				}]`), v)
+				return nil
+			},
+		)
+
+		i.client = client
+
+		sources, err := i.request(t.Context())
+		assert.NoError(t, err)
+		assert.Len(t, sources, 1)
+
+		i.updateCtls(sources)
+
+		ctl, found := i.proxyCtls[registryID]
+		assert.True(t, found)
+		assert.False(t, ctl.NoAuth)
+	})
+
+	t.Run("static no_auth retained alongside registry sources", func(t *testing.T) {
+		i := establishTestRouter(t, ctrl).(*internal)
+
+		src, _ := keys.NormalizeURL("https://noauth.example.com")
+		dst, _ := keys.NormalizeURL("https://foo.example.com")
+
+		i.staticSrc = []RawSource{{ID: staticID, Source: src, Destination: dst, NoAuth: true}}
+
+		i.RefreshControls(mockJetstreamMsg{b: []byte(routeResponse)})
+
+		assert.True(t, i.proxyCtls[staticID].NoAuth)
+		assert.False(t, i.proxyCtls[registryID].NoAuth)
+	})
+
+	t.Run("published sources never carry no_auth", func(t *testing.T) {
+		i := establishTestRouter(t, ctrl).(*internal)
+
+		client := mock_requests.NewMockClient(ctrl)
+		client.EXPECT().GetJSON(gomock.Any(), tarURL, map[string]string{}, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ string, _ map[string]string, v any) *requests.RequestFailedError {
+				json.Unmarshal([]byte(routeResponse), v)
+				// Even if a source were somehow flagged in memory, it must not be
+				// conveyed to subscribers.
+				(*v.(*[]RawSource))[0].NoAuth = true
+				return nil
+			},
+		)
+
+		var published []byte
+
+		routePS := mock_streams.NewMockPubSub(ctrl)
+		routePS.EXPECT().PublishSingleMsg(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, v any) error {
+				published, _ = json.Marshal(v)
+				return nil
+			},
+		)
+
+		i.client = client
+		i.routePS = routePS
+
+		assert.Nil(t, i.PublishSources(t.Context()))
+
+		i.RefreshControls(mockJetstreamMsg{b: published})
+
+		assert.NotContains(t, string(published), "no_auth")
+		assert.NotContains(t, string(published), "NoAuth")
+		assert.False(t, i.proxyCtls[registryID].NoAuth)
+	})
 }
 
 func Test_internal_PublishSources(t *testing.T) {

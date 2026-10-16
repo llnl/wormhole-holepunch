@@ -33,6 +33,10 @@ type RawSource struct {
 			Groups []string `json:"groups" yaml:"groups" validate:"omitempty,headerVal"`
 		} `json:"allowed" yaml:"allowed"`
 	} `json:"rules" yaml:"rules"`
+	// NoAuth disables the ext_authz (holepunch-authz) filter for the route. This is an
+	// admin only, internal configuration and must never be decodable from the route
+	// registry (or any JSON).
+	NoAuth bool `json:"-" yaml:"-"`
 }
 
 //
