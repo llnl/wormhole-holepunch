@@ -71,23 +71,8 @@ flowchart LR
 ## Deployment
 
 Holepunch is designed to be deployed along side the Token Service and Route Registry
-on a Kubernetes cluster. The charts can be reviewed and deployed from the `helm/`
-directory:
-
-```shell
-helm upgrade --install -n holepunch-namespace .
-```
-
-### Required Secrets:
-
-The deployment requires that several secrets be manually established in advance
-of running any Helm commands:
-
-* `nats-auth`: Used 
-  - `username`/`password`: Credentials used by Holepunch to access/modify all stores and subscriptions.
-
-* `holepunch-secrets`: Mounted as environment variables into Holepunch deployments.
-  - `HOLEPUNCH_NATS_HOST`: Required to access our NATS instance (e.g., `nats://user:pass@nats.namespace.svc.cluster.local:4222`)
+on a Kubernetes cluster. The charts can be reviewed and deployed from the
+[llnl/wormhole](https://github.com/llnl/wormhole) project.
 
 ### Configuration
 
