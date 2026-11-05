@@ -14,6 +14,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/rules"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
 )
 
@@ -54,13 +55,9 @@ type internal struct {
 	client  requests.Client
 	kvStore streams.KVStore
 	ll      logs.Logger
-	// oauth2Enabled indicates if the oauth flow managed by an external
-	// oauth2 proxy instance is enabled.
-	oauth2Enabled bool
-	// oauth2RedirectURL redirect URL constructed from the OauthProxyURL.
-	oauth2RedirectURL *url.URL
-	// oauth2AuthURL authentication URL constructed from the OauthProxyURL.
-	oauth2AuthURL    *url.URL
+	// oauth authenticates requests lacking a WAT through session cookies, and starts a new
+	// OAuth flow when they are missing or no longer valid.
+	oauth            oauthmngr.Validator
 	oauthExchangeURL string
 	tokenExchangeURL string
 	tokenSvcArgs     args.TokenService
@@ -68,12 +65,15 @@ type internal struct {
 	validator        rules.Validator
 }
 
-// Initialize configures the internal authenticator with the provided settings.
+// Initialize configures the internal authenticator with the provided settings. Requests
+// lacking a WAT are authenticated through the oauth Validator, use oauthmngr.Disabled when
+// OAuth is not supported.
 func Initialize(
 	cipher aescipher.Cipherer,
 	kvStore streams.KVStore,
 	ll logs.Logger,
 	tokenSvcArgs args.TokenService,
+	oauth oauthmngr.Validator,
 ) Authenticator {
 	tokenURL, _ := url.Parse(tokenSvcArgs.TokenHost)
 
@@ -82,21 +82,12 @@ func Initialize(
 		client:           requests.DefaultClient(ll),
 		kvStore:          kvStore,
 		ll:               ll,
-		oauth2Enabled:    tokenSvcArgs.OauthProxy != "",
+		oauth:            oauth,
 		oauthExchangeURL: tokenURL.JoinPath(tokenSvcArgs.OauthExchangePath).String(),
 		tokenExchangeURL: tokenURL.JoinPath(tokenSvcArgs.TokenExchangePath).String(),
 		tokenSvcArgs:     tokenSvcArgs,
 		subtokenReqURL:   tokenURL.JoinPath(tokenSvcArgs.SubtokenPath).String(),
 		validator:        rules.NewValidator(),
-	}
-
-	if i.oauth2Enabled {
-		i.oauth2RedirectURL = buildRedirectURL(tokenSvcArgs.OauthProxy)
-		if tokenSvcArgs.OauthRedirectURL != "" {
-			i.oauth2RedirectURL, _ = url.Parse(tokenSvcArgs.OauthRedirectURL)
-		}
-
-		i.oauth2AuthURL = buildAuthURL(tokenSvcArgs.OauthProxy)
 	}
 
 	return i
@@ -121,12 +112,15 @@ func (i internal) RequestHeader(
 		return wormhole.TokenContext{}, AuthResponse{}, errs.SimpleBadReqErr(err)
 	}
 
-	var payload wormhole.TokenPayload
+	var (
+		payload wormhole.TokenPayload
+		session *oauthmngr.Result
+	)
 
 	if found {
 		payload, jwt, sErr = i.wormholeAccessTokenFlow(ctx, ll, tknCtx.WAT, tknCtx.TokenID)
 	} else {
-		payload, jwt, sErr = i.oauthFlow(ctx, ll, req)
+		payload, jwt, session, sErr = i.oauthFlow(ctx, ll, req)
 	}
 
 	if sErr != nil {
@@ -137,12 +131,22 @@ func (i internal) RequestHeader(
 
 	ll.InfoCtx(ctx, tknCtx.Payload.Username+" successfully authenticated")
 
-	return tknCtx, AuthResponse{
-		SetHeaders: i.setHeaders(jwt, req),
-		// We will need to expand this to remove the cookie as part of the
-		// oauth2 overhaul.
+	resp := AuthResponse{
+		SetHeaders:    i.setHeaders(jwt, req),
 		RemoveHeaders: []string{},
-	}, nil
+	}
+
+	// Session cookies must never reach the upstream, forward the Cookie header with them
+	// stripped (or drop it entirely when nothing else remains).
+	if session != nil {
+		if session.CookieHeader == "" {
+			resp.RemoveHeaders = append(resp.RemoveHeaders, keys.CookieHeader)
+		} else {
+			resp.SetHeaders[keys.CookieHeader] = session.CookieHeader
+		}
+	}
+
+	return tknCtx, resp, nil
 }
 
 func (i internal) InvalidateToken(ctx context.Context, tokenID string) {
@@ -183,7 +187,7 @@ func (i internal) setHeaders(jwt string, req requests.RequestDetails) map[string
 		// The user's initial authentication token should always be overwritten
 		// with the new and more limited scoped JWT.
 		i.tokenSvcArgs.TokenHeader: jwt,
-		keys.RouteIDHeader:            req.RouteID,
+		keys.RouteIDHeader:         req.RouteID,
 	}
 
 	if req.CommunityID != "" {

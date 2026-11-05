@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"strings"
 
+	"google.golang.org/grpc/codes"
+
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
 )
 
@@ -91,34 +94,28 @@ func (i internal) wormholeAccessTokenFlow(
 	return cs.Payload, cs.decryptedJumpToken, nil
 }
 
-// oauthFlow handles request authorization missing a traditional x-token based upon
-// sessions cookies.
+// oauthFlow handles request authorization missing a traditional x-token based upon session
+// cookies, validated (and resolved to an access_token) by the oauth Validator. The validated
+// session is returned so the caller can forward the Cookie header with it stripped.
 // nolint: funlen
 func (i internal) oauthFlow(
 	ctx context.Context,
 	ll logs.Logger,
 	details requests.RequestDetails,
-) (wormhole.TokenPayload, string, *errs.StatusError) {
+) (wormhole.TokenPayload, string, *oauthmngr.Result, *errs.StatusError) {
 	ctx, endSpan := ll.StartSpan(ctx, "oauthFlow")
 	defer endSpan()
 
 	ll.InfoCtx(ctx, "oauthFlow initiated")
 
-	if !i.oauth2Enabled {
-		msg := "oauth2 support currently disabled"
-		ll.InfoCtx(ctx, msg)
-
-		return wormhole.TokenPayload{}, "", errs.SimpleAuthErr(errors.New(msg))
-	}
-
-	res, sErr := i.callProxyAuth(ctx, details, i.parseCookies(details))
+	session, sErr := i.oauth.ValidateCookies(ctx, details)
 	if sErr != nil {
-		return wormhole.TokenPayload{}, "", sErr
+		ll.InfoCtx(ctx, "oauth session unavailable", ll.StringArg("error", sErr.Error()))
+
+		return wormhole.TokenPayload{}, "", nil, i.startOauthFlow(ctx, ll, details, sErr)
 	}
 
-	var cs cache
-
-	accessToken := res.headers[keys.Oauth2ProxyAccessTokenHeader]
+	accessToken := session.AccessToken
 	key := keys.WormholeOauthSession(accessToken)
 
 	cs, found, sErr := i.getCache(ctx, ll, key, accessToken)
@@ -127,9 +124,9 @@ func (i internal) oauthFlow(
 
 		// After reviewing this error we know the cache has been cleared, it is best to
 		// redirect them to the start of the login flow.
-		return wormhole.TokenPayload{}, "", errs.NewRedirectErr(i.constructProxyRedirect(details))
+		return wormhole.TokenPayload{}, "", nil, i.startOauthFlow(ctx, ll, details, errs.SimpleAuthErr(sErr))
 	} else if found {
-		return cs.Payload, cs.decryptedJumpToken, nil
+		return cs.Payload, cs.decryptedJumpToken, &session, nil
 	}
 
 	var resp exchangeResp
@@ -148,7 +145,7 @@ func (i internal) oauthFlow(
 		// It might be nice to differentiate between errors here? There maybe cases where we simply
 		// want to redirect the user without simply rejecting the request. Future improvement
 		// likely required after the Token Service support finalized.
-		return wormhole.TokenPayload{}, "", errs.SimpleAuthErr(reqErr)
+		return wormhole.TokenPayload{}, "", nil, errs.SimpleAuthErr(reqErr)
 	}
 
 	// Simply capture the payload + JWT in the cache. The remainder of the cache is utilized
@@ -159,12 +156,42 @@ func (i internal) oauthFlow(
 
 	cs.Payload, sErr = decodeTrustedJWT(resp.JWT)
 	if sErr != nil {
-		return wormhole.TokenPayload{}, "", errs.SimpleInternalErr(sErr)
+		return wormhole.TokenPayload{}, "", nil, errs.SimpleInternalErr(sErr)
 	}
 
 	i.storeCache(ctx, ll, key, cs)
 
-	return cs.Payload, resp.JWT, sErr
+	return cs.Payload, resp.JWT, &session, nil
+}
+
+// startOauthFlow converts an authentication failure into a redirect that starts a new OAuth
+// flow returning to the requested URL. The original failure is returned when it isn't an
+// authentication failure (e.g., oauth2-proxy unavailable) or when the strategy offers no
+// flow (none).
+func (i internal) startOauthFlow(
+	ctx context.Context,
+	ll logs.Logger,
+	details requests.RequestDetails,
+	cause *errs.StatusError,
+) *errs.StatusError {
+	if cause.Code() != int32(codes.Unauthenticated) {
+		return cause
+	}
+
+	redirect, sErr := i.oauth.PrepareAuthRedirect(requestURL(details), details)
+	if sErr != nil {
+		ll.DebugCtx(ctx, "no oauth flow available", ll.StringArg("error", sErr.Error()))
+
+		return cause
+	}
+
+	var opts []errs.StatusErrOption
+	if redirect.SetCookie != nil {
+		opts = append(opts, errs.WithSetCookie(redirect.SetCookie))
+		opts = append(opts, errs.WithHeaders(map[string]string{"cache-control": "no-store"}))
+	}
+
+	return errs.NewRedirectErr(redirect.URL, opts...)
 }
 
 // exchangeToken performs the token exchange with the authentication service. If specific
@@ -201,26 +228,15 @@ func (i internal) exchangeToken(
 	return resp, nil
 }
 
-// parseCookies is a helper function to parse cookies from the "Cookie" header
-// in the RequestDetails structure.
-func (i internal) parseCookies(details requests.RequestDetails) []*http.Cookie {
-	cookies := make([]*http.Cookie, 0)
-
-	// Split the cookies in the "Cookie" header using "; ".
-	for part := range strings.SplitSeq(details.Headers[keys.CookieHeader], "; ") {
-		// Split the individual cookie into name=value pairs.
-		if kv := strings.SplitN(part, "=", 2); len(kv) == 2 {
-			// In this case the cookies are being added for an internal request
-			// to the trusted token service.
-			// nolint: gosec
-			cookies = append(cookies, &http.Cookie{
-				Name:  kv[0],
-				Value: kv[1],
-			})
-		}
+// requestURL reconstructs the requested URL as the destination once an OAuth flow completes.
+// The path, as supplied by Envoy, retains any query string.
+func requestURL(details requests.RequestDetails) string {
+	scheme := details.Scheme
+	if scheme == "" {
+		scheme = "https"
 	}
 
-	return cookies
+	return scheme + "://" + details.Host + details.Path
 }
 
 //

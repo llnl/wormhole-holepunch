@@ -31,6 +31,10 @@ type RequestDetails struct {
 	// Path use specified in request, rely on Envoy/proxy cleanup rules, by default no
 	// additional validation preformed.
 	Path string
+	// ClientIP is the downstream remote address determined by Envoy's HCM
+	// (attributes.source.address). The oauthmngr wasm plugin
+	// derives the client IP from the same source, so nonce bindings remain consistent.
+	ClientIP string
 }
 
 //

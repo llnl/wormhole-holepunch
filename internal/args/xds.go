@@ -23,6 +23,7 @@ const (
 	nodeNameName          = "node-name"
 	listenerPortName      = "listener-port"
 	listenerAddressName   = "listener-address"
+	useRemoteAddressName  = "use-remote-address"
 	versionHeaderName     = "version-header"
 	xdsClusterName        = "xds-cluster"
 )
@@ -63,6 +64,10 @@ type XDS struct {
 	ListenerAddress string
 	// VersionHeader indicates if the x-holepunch-version header should be injected.
 	VersionHeader bool
+	// UseRemoteAddress has Envoy use the connection's remote address, rather than the
+	// x-forwarded-for header, when determining the client address. Enable when Envoy is the
+	// edge proxy, otherwise a client supplied x-forwarded-for determines the client address.
+	UseRemoteAddress bool
 
 	/* Development settings */
 
@@ -97,6 +102,13 @@ func (f *FlagBuilder) XDSFlags(xds *XDS) *FlagBuilder {
 			Sources:     envWrapper("AUTH_MAX_BYTES"),
 			Usage:       "Sets the maximum size of a message body that the filter will hold in memory",
 			Value:       8192,
+		},
+		&cli.BoolFlag{
+			Category:    categoryXDS,
+			Destination: &xds.UseRemoteAddress,
+			Name:        useRemoteAddressName,
+			Sources:     envWrapper("USE_REMOTE_ADDRESS"),
+			Usage:       "Determine the client address from the connection rather than x-forwarded-for",
 		},
 		&cli.StringFlag{
 			Category:    categoryXDS,

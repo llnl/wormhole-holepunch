@@ -6,6 +6,7 @@ import (
 	"log"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/urfave/cli/v3"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
 	"github.com/llnl/wormhole-holepunch/internal/envoy"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/ledger"
 	"github.com/llnl/wormhole-holepunch/internal/server"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 )
@@ -41,8 +44,9 @@ func startAuthCmd(ctx context.Context, _ *cli.Command) error {
 		return fmt.Errorf("failed to initialize route pubsub: %w", err)
 	}
 
-	tokenAuth := loadAuthenticator(tokenStore, ll)
-	routeReg := loadRegistry(ctx, ll, routePS)
+	oauth := loadOauth(ctx, ll, streamClient)
+	tokenAuth := loadAuthenticator(tokenStore, ll, oauth)
+	routeReg := loadRegistry(ctx, ll, routePS, registry.WithSourceExpander(oauth.ExpandSources))
 
 	ll.Info("starting up holepunch envoy-auth...")
 
@@ -75,8 +79,9 @@ func startAdminCmd(ctx context.Context, _ *cli.Command) error {
 		return fmt.Errorf("failed to initialize route pubsub: %w", err)
 	}
 
-	tokenAuth := loadAuthenticator(tokenStore, ll)
-	routeReg := loadRegistry(ctx, ll, routePS)
+	tokenAuth := loadAuthenticator(tokenStore, ll, oauthmngr.Disabled())
+	oauth := loadOauth(ctx, ll, streamClient)
+	routeReg := loadRegistry(ctx, ll, routePS, registry.WithSourceExpander(oauth.ExpandSources))
 
 	go manageRegistryRefresh(ctx, routeReg)
 
@@ -104,12 +109,48 @@ func startCacherCmd(ctx context.Context, _ *cli.Command) error {
 		return fmt.Errorf("failed to initialize route pubsub: %w", err)
 	}
 
-	tokenAuth := loadAuthenticator(tokenStore, ll)
+	tokenAuth := loadAuthenticator(tokenStore, ll, oauthmngr.Disabled())
 	routeReg := loadRegistry(ctx, ll, routePS)
 
 	ll.Info("starting up holepunch cacher...")
 
 	return cacher.StartService(ctx, *cacheArgs, ll, routeReg, tokenAuth)
+}
+
+func startOauthmngrCmd(ctx context.Context, _ *cli.Command) error {
+	ctx, stop, ll := defaultInit(ctx)
+	defer stop()
+
+	otelReq, shutdown := loadOTEL(ctx, ll)
+	if otelReq {
+		defer otelShutdown(ctx, ll, shutdown)
+	}
+
+	streamClient, err := streams.Connect(*storageArgs, ll)
+	if err != nil {
+		return fmt.Errorf("failed to connect to streams: %w", err)
+	}
+
+	sessionStore, err := streamClient.InitializeSessions(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize session store: %w", err)
+	}
+
+	flowStore, err := ledger.New(
+		sessionStore,
+		ll,
+		oauthArgs.UserAuthURL,
+		time.Duration(oauthArgs.NonceTTL)*time.Second,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to initialize ledger: %w", err)
+	}
+
+	ll.Info("starting up holepunch oauthmngr...")
+
+	return server.Configuration{
+		Address: webArgs.ServerAddress,
+	}.LedgerAPI(ctx, ll, flowStore)
 }
 
 func startXDSCmd(ctx context.Context, _ *cli.Command) error {
@@ -131,13 +172,14 @@ func startXDSCmd(ctx context.Context, _ *cli.Command) error {
 		return fmt.Errorf("failed to initialize route pubsub: %w", err)
 	}
 
-	routeReg := loadRegistry(ctx, ll, routePS)
+	oauth := loadOauth(ctx, ll, streamClient)
+	routeReg := loadRegistry(ctx, ll, routePS, registry.WithSourceExpander(oauth.ExpandSources))
 
 	ll.Info("starting up holepunch envoy-xds...")
 
 	go manageRegistryRefresh(ctx, routeReg)
 
-	return envoy.RunServer(ctx, ll, routeReg, *tokenSvcArgs, *webArgs, *xdsArgs)
+	return envoy.RunServer(ctx, ll, routeReg, oauth, *oauthArgs, *tokenSvcArgs, *webArgs, *xdsArgs)
 }
 
 //

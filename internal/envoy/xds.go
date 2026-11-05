@@ -23,6 +23,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 )
 
@@ -39,21 +40,30 @@ type xdsServer struct {
 	// sure these occur first on headers identified as critical.
 	defaultRequestHeaders []*mutation_rules.HeaderMutation
 	ll                    logs.Logger
-	routeReg              registry.Router
-	tokenSvcArgs          args.TokenService
-	xds                   srv.Server
-	xdsArgs               args.XDS
+	// oauthPlugin is the oauthmngr wasm plugin, nil when the strategy requires none.
+	oauthPlugin  *oauthPlugin
+	routeReg     registry.Router
+	tokenSvcArgs args.TokenService
+	xds          srv.Server
+	xdsArgs      args.XDS
 }
 
 func RunServer(
 	ctx context.Context,
 	ll logs.Logger,
 	routeReg registry.Router,
+	oauth oauthmngr.Validator,
+	oauthArgs args.OauthManagement,
 	tokenSvcArgs args.TokenService,
 	webArgs args.WebServer,
 	xdsArgs args.XDS,
 ) error {
 	ll.Info("starting xds management server on " + webArgs.ServerAddress)
+
+	plugin, err := newOauthPlugin(oauth, oauthArgs)
+	if err != nil {
+		return err
+	}
 
 	lis, err := net.Listen("tcp", webArgs.ServerAddress)
 	if err != nil {
@@ -68,6 +78,7 @@ func RunServer(
 		cache:                 cache,
 		defaultRequestHeaders: establishDefaultRequestHeaders(tokenSvcArgs),
 		ll:                    ll,
+		oauthPlugin:           plugin,
 		routeReg:              routeReg,
 		tokenSvcArgs:          tokenSvcArgs,
 		xds:                   srv.NewServer(ctx, cache, &test.Callbacks{}),

@@ -36,6 +36,9 @@ type ProxyControls struct {
 	// NoAuth indicates the ext_authz filter must be disabled for the route. Only
 	// admin defined static sources are able to establish this.
 	NoAuth bool
+	// Kind identifies how Envoy must handle the route, see RouteKind. Only routes injected
+	// by oauthmngr's ExpandSources carry anything other than RouteKindUpstream.
+	Kind RouteKind
 }
 
 type Router interface {
