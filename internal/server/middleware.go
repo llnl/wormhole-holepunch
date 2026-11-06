@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 )
 
 // nolint: contextcheck
@@ -19,7 +20,7 @@ func (d *data) loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		rw := newResponseWriter(w)
 
-		if r.URL.String() == defaultPrefix+"healthz" {
+		if r.URL.String() == paths.HealthPath {
 			next.ServeHTTP(rw, r)
 			return
 		}

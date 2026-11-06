@@ -31,12 +31,25 @@ const (
 	ruleErrDetails = "request rejected based upon router rules"
 )
 
+// Option customizes the Router established by Initialize.
+type Option func(*internal)
+
+// WithSourceExpander applies expand to every complete set of sources (static and route
+// registry provided) before any controls are established. It allows routes required by
+// Holepunch itself (e.g., oauthmngr's ExpandSources) to be injected alongside user routes.
+func WithSourceExpander(expand func([]RawSource) []RawSource) Option {
+	return func(i *internal) {
+		i.expand = expand
+	}
+}
+
 func Initialize(
 	ctx context.Context,
 	client requests.Client,
 	routePS streams.PubSub,
 	routeRegArgs args.RouteRegistry,
 	ll logs.Logger,
+	opts ...Option,
 ) (Router, error) {
 	u, err := url.Parse(routeRegArgs.RegistryHost)
 	if err != nil {
@@ -68,6 +81,10 @@ func Initialize(
 		redirectAllow: make(map[string]struct{}),
 	}
 
+	for _, opt := range opts {
+		opt(i)
+	}
+
 	// We will dynamically fetch/update the controls during the Holepunch
 	// startup process, simply use this as an initial step to establish any
 	// statically configured resources.
@@ -89,6 +106,8 @@ type internal struct {
 	routesURL          string
 	staticSrc          []RawSource
 	vv                 rules.Validator
+	// expand optionally injects additional routes, see WithSourceExpander.
+	expand func([]RawSource) []RawSource
 
 	mu sync.RWMutex
 	// authControls offers the primary internal mechanism by which we realize the
@@ -113,6 +132,7 @@ type authControls struct {
 	Source      string      `json:"source"`
 	Destination string      `json:"destination"`
 	ID          string      `json:"id"`
+	Kind        string      `json:"kind"`
 	CommunityID string      `json:"community_id"`
 	Allowed     userDetails `json:"allowed"`
 	Disallowed  userDetails `json:"disallowed"`
@@ -302,7 +322,16 @@ func (i *internal) updateCtls(sources []RawSource) {
 		redirectAllow[host] = struct{}{}
 	}
 
-	for _, rs := range append(i.staticSrc, sources...) {
+	// Static sources are checked when loaded, registry sources here (covering both the
+	// direct fetch and those received through the routes stream).
+	sources = i.dropReserved(sources)
+
+	all := append(append(make([]RawSource, 0, len(i.staticSrc)+len(sources)), i.staticSrc...), sources...)
+	if i.expand != nil {
+		all = i.expand(all)
+	}
+
+	for _, rs := range all {
 		i.ll.Debugf("updating mapping for %s (%s)", rs.Destination.Raw, rs.ID)
 
 		authCtls[rs.ID] = i.convert(rs)
@@ -316,6 +345,7 @@ func (i *internal) updateCtls(sources []RawSource) {
 			AuthzContext:   authzContext(rs),
 			PrefixRewrite:  rs.PrefixRewrite,
 			NoAuth:         rs.NoAuth,
+			Kind:           rs.Kind,
 		}
 
 		if rs.Source.Key != "" {
@@ -334,7 +364,7 @@ func (i *internal) updateCtls(sources []RawSource) {
 // community is only included when the route is associated with one.
 func authzContext(rs RawSource) map[string]string {
 	ctxExt := map[string]string{
-		keys.RouteIDHeader:           rs.ID,
+		keys.RouteIDHeader:        rs.ID,
 		keys.WormholeHostHeader:   rs.Source.URL.Host,
 		keys.WormholeSchemeHeader: rs.Source.URL.Scheme,
 	}

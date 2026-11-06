@@ -34,17 +34,66 @@ build-linux-dev: build-dir
 	$(call CROSS_build,linux,${GOARCH},holepunch)
 	mv ${BUILDDIR}holepunch-linux-${GOARCH} ${BUILDDIR}holepunch-dev
 
+define WASM_build
+	CGO_ENABLED=0 \
+	GOOS=wasip1 \
+	GOARCH=wasm \
+	${GOCMD} build \
+		${BUILD_FLAGS} \
+		-buildmode=c-shared \
+		-ldflags "-s -w" \
+		-o ${BUILDDIR}${1}.wasm \
+		./cmd/plugins/${1} && \
+	chmod 644 ${BUILDDIR}${1}.wasm;
+endef
+
+# Every directory beneath cmd/plugins is a proxy-wasm plugin module.
+WASM_PLUGINS := $(notdir $(wildcard cmd/plugins/*))
+WASM_PLUGIN ?=
+
+ifneq ($(strip $(WASM_PLUGIN)),)
+ifneq ($(words $(WASM_PLUGIN)),1)
+$(error WASM_PLUGIN must name exactly one plugin; available plugins: $(WASM_PLUGINS))
+endif
+ifeq ($(filter $(WASM_PLUGIN),$(WASM_PLUGINS)),)
+$(error Unknown WASM_PLUGIN '$(WASM_PLUGIN)'; available plugins: $(WASM_PLUGINS))
+endif
+WASM_PLUGINS_TO_BUILD := $(WASM_PLUGIN)
+else
+WASM_PLUGINS_TO_BUILD := $(WASM_PLUGINS)
+endif
+
+.PHONY: build-wasm #B Build proxy-wasm plugins; set WASM_PLUGIN to build only one.
+build-wasm: build-dir
+	$(foreach p,$(WASM_PLUGINS_TO_BUILD),$(call WASM_build,$(p)))
+
 HOLEPUNCH_IMAGE ?= ghcr.io/llnl/wormhole-holepunch
 HOLEPUNCH_TAG ?= local
 
-.PHONY: build-container #B Build a development Holepunch container.
+HOLEPUNCH_PLUGIN_IMAGE_PREFIX ?= ${HOLEPUNCH_IMAGE}
+
+.PHONY: build-container #B Build Holepunch, combined plugin, and individual proxy-wasm plugin images.
 build-container:
 	mkdir -p certs
 	${CONTAINER_RUNTIME} build \
 		-f build/image/Containerfile \
 		--build-arg GO_VERSION=${GO_SEMVER} \
+		--target holepunch \
 		-t ${HOLEPUNCH_IMAGE}:${HOLEPUNCH_TAG} \
 		.
+	${CONTAINER_RUNTIME} build \
+		-f build/image/plugins.Containerfile \
+		--build-arg GO_VERSION=${GO_SEMVER} \
+		-t ${HOLEPUNCH_IMAGE}-plugins:${HOLEPUNCH_TAG} \
+		.
+	set -e; for plugin in ${WASM_PLUGINS}; do \
+		${CONTAINER_RUNTIME} build \
+			-f build/image/wasm.Containerfile \
+			--build-arg GO_VERSION=${GO_SEMVER} \
+			--build-arg WASM_PLUGIN=$$plugin \
+			-t ${HOLEPUNCH_PLUGIN_IMAGE_PREFIX}-$$plugin:${HOLEPUNCH_TAG} \
+			.; \
+	done
 
 .PHONY: sbom #B Generate SBOM for the application using cyclonedx-gomod.
 sbom:
@@ -55,9 +104,17 @@ vendor:
 	${GOCMD} mod tidy
 	${GOCMD} mod vendor
 
-.PHONY: dev #D Deploy local dev/test environment using podman-compose.
-dev: build-linux-dev dev-down dev-permissions
+.PHONY: dev #D Deploy local dev/test environment using Compose (foreground).
+dev: build-linux-dev build-wasm dev-down dev-permissions
 	${CONTAINER_RUNTIME} compose -p holepunch-dev -f ${ROOT_DIR}/build/dev/compose.yaml up
+
+.PHONY: dev-up #D Build and deploy the local dev/test environment in the background.
+dev-up: build-linux-dev build-wasm dev-down dev-permissions
+	${CONTAINER_RUNTIME} compose -p holepunch-dev -f ${ROOT_DIR}/build/dev/compose.yaml up -d
+
+.PHONY: dev-test #D Test the full local OAuth middleware flow (requires make dev or dev-up).
+dev-test:
+	python3 ${ROOT_DIR}/tools/dev-auth-test.py
 
 .PHONY: dev-down #D Shutdown the local  podman-compose environment.
 dev-down:

@@ -8,15 +8,17 @@ import (
 )
 
 const (
-	defaultXDSAddr   = ":8080"
-	defaultAuthAddr  = ":8081"
-	defaultAdminAddr = ":8082"
+	defaultXDSAddr    = ":8080"
+	defaultAuthAddr   = ":8081"
+	defaultAdminAddr  = ":8082"
+	defaultLedgerAddr = ":8083"
 )
 
 var (
 	cacheArgs    = &args.Cacher{}
 	globalArgs   = &args.GlobalSettings{}
 	loggingArgs  = &args.Logging{}
+	oauthArgs    = &args.OauthManagement{}
 	routeRegArgs = &args.RouteRegistry{}
 	storageArgs  = &args.Storage{}
 	tokenSvcArgs = &args.TokenService{}
@@ -37,6 +39,7 @@ func Tasks() *cli.Command {
 			authCmd(),
 			xdsCommand(),
 			cacherCmd(),
+			oauthmngrCmd(),
 		},
 		Flags: f.Flags,
 	}
@@ -51,6 +54,7 @@ func xdsCommand() *cli.Command {
 		StorageFlags(storageArgs).
 		WebServerFlags(webArgs, defaultXDSAddr, true).
 		TokenServiceFlags(tokenSvcArgs).
+		OauthManagementFlags(oauthArgs).
 		XDSFlags(xdsArgs)
 
 	return &cli.Command{
@@ -68,7 +72,8 @@ func authCmd() *cli.Command {
 		RouteRegistryFlags(routeRegArgs).
 		StorageFlags(storageArgs).
 		WebServerFlags(webArgs, defaultAuthAddr, true).
-		TokenServiceFlags(tokenSvcArgs)
+		TokenServiceFlags(tokenSvcArgs).
+		OauthManagementFlags(oauthArgs)
 
 	return &cli.Command{
 		Name:    "envoy-auth",
@@ -85,7 +90,8 @@ func adminCmd() *cli.Command {
 		RouteRegistryFlags(routeRegArgs).
 		StorageFlags(storageArgs).
 		WebServerFlags(webArgs, defaultAdminAddr, false).
-		TokenServiceFlags(tokenSvcArgs)
+		TokenServiceFlags(tokenSvcArgs).
+		OauthManagementFlags(oauthArgs)
 
 	return &cli.Command{
 		Name:   "admin",
@@ -106,6 +112,21 @@ func cacherCmd() *cli.Command {
 		Name:   "cacher",
 		Usage:  "Cache management service",
 		Action: startCacherCmd,
+		Flags:  f.Flags,
+	}
+}
+
+func oauthmngrCmd() *cli.Command {
+	f := args.NewBuilder().
+		LoggingFlags(loggingArgs, "holepunch-oauthmngr").
+		StorageFlags(storageArgs).
+		WebServerFlags(webArgs, defaultLedgerAddr, false).
+		OauthManagementFlags(oauthArgs)
+
+	return &cli.Command{
+		Name:   "oauthmngr",
+		Usage:  "OAuth session ledger for the oauthmngr wasm plugin (oauth2-proxy-middleware strategy)",
+		Action: startOauthmngrCmd,
 		Flags:  f.Flags,
 	}
 }

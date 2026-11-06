@@ -59,7 +59,7 @@ func Test_authServer_establishReqDetails(t *testing.T) {
 				"x-token": "tok-abc",
 			},
 			map[string]string{
-				keys.RouteIDHeader:           "route-123",
+				keys.RouteIDHeader:        "route-123",
 				keys.WormholeHostHeader:   "api.example.com",
 				keys.WormholeSchemeHeader: "https",
 				keys.CommunityHeader:      "comm-456",
@@ -73,6 +73,31 @@ func Test_authServer_establishReqDetails(t *testing.T) {
 		assert.Equal(t, "https", got.Scheme)
 		assert.Equal(t, "comm-456", got.CommunityID)
 		assert.Equal(t, "tok-abc", got.Headers["x-token"])
+	})
+
+	t.Run("path from the request, including the query", func(t *testing.T) {
+		req := makeCheckRequest(map[string]string{}, map[string]string{})
+		req.Attributes.Request.Http.Path = "/app?x=1"
+
+		got := (&authServer{}).establishReqDetails(req)
+
+		assert.Equal(t, "/app?x=1", got.Path)
+	})
+
+	t.Run("client IP from the downstream source address", func(t *testing.T) {
+		req := makeCheckRequest(map[string]string{}, map[string]string{})
+		req.Attributes.Source = &auth.AttributeContext_Peer{
+			Address: &envoy_core.Address{Address: &envoy_core.Address_SocketAddress{
+				SocketAddress: &envoy_core.SocketAddress{
+					Address:       "10.0.0.1",
+					PortSpecifier: &envoy_core.SocketAddress_PortValue{PortValue: 51234},
+				},
+			}},
+		}
+
+		got := (&authServer{}).establishReqDetails(req)
+
+		assert.Equal(t, "10.0.0.1", got.ClientIP)
 	})
 
 	t.Run("DevHostHeader overrides host from request header", func(t *testing.T) {
