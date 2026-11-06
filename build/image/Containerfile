@@ -8,15 +8,11 @@ COPY  . .
 ARG GOMAXPROCS=4
 ARG VERSION
 
-# The Holepunch binary and every proxy-wasm plugin are built from the same source, keeping
-# plugin versions locked to the control plane that generates their configuration.
-RUN make build build-wasm && \
+RUN make build && \
     ./binaries/holepunch --version
 
-# Holepunch (default target).
-FROM gcr.io/distroless/static-debian13:latest-amd64 AS holepunch
+FROM gcr.io/distroless/static-debian13:latest-amd64
 
 COPY --from=build /holepunch/binaries/holepunch /holepunch
-COPY --from=build /holepunch/binaries/*.wasm /plugin/
 
 ENTRYPOINT ["/holepunch"]

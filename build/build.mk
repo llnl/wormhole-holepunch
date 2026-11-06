@@ -70,9 +70,9 @@ build-wasm: build-dir
 HOLEPUNCH_IMAGE ?= ghcr.io/llnl/wormhole-holepunch
 HOLEPUNCH_TAG ?= local
 
-HOLEPUNCH_PLUGIN_IMAGE_PREFIX ?= ${HOLEPUNCH_IMAGE}-plugin
+HOLEPUNCH_PLUGIN_IMAGE_PREFIX ?= ${HOLEPUNCH_IMAGE}
 
-.PHONY: build-container #B Build development Holepunch and individual proxy-wasm plugin images.
+.PHONY: build-container #B Build Holepunch, combined plugin, and individual proxy-wasm plugin images.
 build-container:
 	mkdir -p certs
 	${CONTAINER_RUNTIME} build \
@@ -81,9 +81,14 @@ build-container:
 		--target holepunch \
 		-t ${HOLEPUNCH_IMAGE}:${HOLEPUNCH_TAG} \
 		.
+	${CONTAINER_RUNTIME} build \
+		-f build/image/plugins.Containerfile \
+		--build-arg GO_VERSION=${GO_SEMVER} \
+		-t ${HOLEPUNCH_IMAGE}-plugins:${HOLEPUNCH_TAG} \
+		.
 	set -e; for plugin in ${WASM_PLUGINS}; do \
 		${CONTAINER_RUNTIME} build \
-			-f build/image/Wasm.Containerfile \
+			-f build/image/wasm.Containerfile \
 			--build-arg GO_VERSION=${GO_SEMVER} \
 			--build-arg WASM_PLUGIN=$$plugin \
 			-t ${HOLEPUNCH_PLUGIN_IMAGE_PREFIX}-$$plugin:${HOLEPUNCH_TAG} \

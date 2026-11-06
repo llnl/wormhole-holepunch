@@ -110,9 +110,9 @@ make build-container
 ```
 
 The Holepunch image includes the proxy-Wasm modules under `/plugin` alongside the
-Holepunch binary. `make build-container` also builds one minimal OCI image per
-plugin, each containing that plugin as `/plugin.wasm`, for deployments that need to
-distribute modules independently.
+Holepunch binary. `make build-container` also builds a `-plugins` image containing
+all modules under `/plugins`, and one minimal OCI image per plugin, named with the
+plugin suffix (for example, `-oauthmngr`) and containing the module as `/plugin.wasm`.
 By default, `make build-wasm` builds every plugin; set `WASM_PLUGIN` to build one,
 for example `make build-wasm WASM_PLUGIN=oauthmngr`.
 
