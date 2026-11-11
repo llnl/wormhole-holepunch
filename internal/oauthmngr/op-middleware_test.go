@@ -79,7 +79,7 @@ func Test_middlewareManager_ExpandSources(t *testing.T) {
 		expanded := m.ExpandSources(nil)
 
 		assert.Equal(t, []string{
-			"oauth2-proxy https://auth.example.com/-/wormhole/oauth2",
+			"oauth2-proxy https://auth.example.com/oauth2",
 			"oauth-callback https://auth.example.com/-/wormhole/oauthmngr",
 		}, injected(expanded))
 	})
@@ -95,7 +95,7 @@ func Test_middlewareManager_ExpandSources(t *testing.T) {
 
 		assert.Equal(t, sources, expanded[:len(sources)])
 		assert.Equal(t, []string{
-			"oauth2-proxy https://auth.example.com/-/wormhole/oauth2",
+			"oauth2-proxy https://auth.example.com/oauth2",
 			"oauth-callback https://auth.example.com/-/wormhole/oauthmngr",
 			"oauth-callback https://foo.example.com/-/wormhole/oauthmngr",
 		}, injected(expanded))
@@ -109,7 +109,7 @@ func Test_middlewareManager_ExpandSources(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Contains(t, injected(withPort.ExpandSources(nil)),
-			"oauth2-proxy https://auth.example.com/-/wormhole/oauth2")
+			"oauth2-proxy https://auth.example.com/oauth2")
 	})
 
 	t.Run("only oauth2-proxy routes forward upstream", func(t *testing.T) {
@@ -181,7 +181,7 @@ func Test_middlewareManager_PrepareAuthRedirect(t *testing.T) {
 		u, err := url.Parse(redirect.URL)
 		require.NoError(t, err)
 		assert.Equal(t, "auth.example.com", u.Host)
-		assert.Equal(t, "/-/wormhole/oauth2/start", u.Path)
+		assert.Equal(t, "/oauth2/start", u.Path)
 
 		rd, err := url.Parse(u.Query().Get("rd"))
 		require.NoError(t, err)

@@ -99,7 +99,7 @@ func (o *middlewareManager) ExpandSources(rawSources []registry.RawSource) []reg
 		// The auth URL may carry a port (e.g., development), virtual hosts never do.
 		if vh.host == oauthapi.HostOnly(o.userAuthURL) {
 			expanded = append(expanded,
-				newRoute(vh, paths.Oauth2ProxyPrefix, registry.RouteKindOauth2Proxy, o.internalProxyURL),
+				newRoute(vh, paths.Oauth2ProxyMiddlewarePrefix, registry.RouteKindOauth2Proxy, o.internalProxyURL),
 			)
 		}
 
@@ -154,7 +154,7 @@ func (o *middlewareManager) PrepareAuthRedirect(
 		"%s://%s%s?rd=%s",
 		scheme,
 		o.userAuthURL,
-		paths.Oauth2ProxyStartPath,
+		paths.Oauth2ProxyMiddlewareStartPath,
 		url.QueryEscape(callbackURL),
 	)
 

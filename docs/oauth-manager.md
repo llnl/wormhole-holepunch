@@ -60,13 +60,15 @@ The shared path constants live in [`internal/ctls/paths`](../internal/ctls/paths
 including the reserved prefix, OAuth endpoints, ledger endpoints, and admin API paths.
 The package has no dependencies so the control plane and proxy-wasm plugin can both use it.
 
-OAuth endpoints are explicitly reserved and bypass
-normal authentication only where required:
+OAuth endpoints bypass normal authentication only where required. The
+middleware strategy uses oauth2-proxy's standard `/oauth2` path on its dedicated
+auth host; the reverse strategy uses the reserved path on each application host:
 
-| Endpoint                | Policy                           |
-|-------------------------|----------------------------------|
-| `/-/wormhole/oauth2/*`  | Forward to oauth2-proxy          |
-| `/-/wormhole/oauthmngr` | Handle the hand-off in Envoy     |
+| Endpoint                             | Strategy    | Policy                       |
+|--------------------------------------|-------------|------------------------------|
+| `/oauth2/*`                           | Middleware  | Forward to oauth2-proxy      |
+| `/-/wormhole/oauth2/*`               | Reverse     | Forward to oauth2-proxy      |
+| `/-/wormhole/oauthmngr`              | Middleware  | Handle the hand-off in Envoy |
 
 OAuth expansion does not add a catch-all route for `/-/wormhole/*`; reserving
 the entire prefix is outside this package's responsibilities.
@@ -122,7 +124,8 @@ can access the WASM module at `HOLEPUNCH_OAUTH_WASM_PATH` (or
 
 Configure oauth2-proxy with:
 
-* `proxy_prefix = "/-/wormhole/oauth2"`.
+* `proxy_prefix = "/oauth2"` (oauth2-proxy's standard path; no extra
+  `/-/wormhole` prefix is needed on the dedicated auth host).
 * Set `redirect_url` to the shared auth-host callback and include the auth host
   in `whitelist_domains` for `rd` redirects.
 * Enable `pass_access_token` and `set_xauthrequest` so Holepunch can validate

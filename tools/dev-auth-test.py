@@ -208,7 +208,7 @@ class LocalAuthFlow(unittest.TestCase):
         next(c for c in sessions if c.domain == urllib.parse.urlsplit(APP).hostname).value = "invalid"
         status, headers, _ = browser.request(target)
         self.assertEqual(status, 302, "Invalid sessions must initiate a new login")
-        self.assertTrue(headers["Location"].startswith(AUTH + "/-/wormhole/oauth2/start?"))
+        self.assertTrue(headers["Location"].startswith(AUTH + "/oauth2/start?"))
 
     def test_missing_or_incorrect_browser_proof_consumes_flow(self):
         for proof in ("missing", "incorrect"):

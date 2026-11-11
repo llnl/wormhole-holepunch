@@ -12,7 +12,7 @@ staticClients:
     # set this to a strong secret and keep it in env/compose secrets in real usage
     secret: oauth2-proxy-secret
     redirectURIs:
-      - http://auth.holepunch.localwormhole:3128/-/wormhole/oauth2/callback
+      - http://auth.holepunch.localwormhole:3128/oauth2/callback
     grantTypes:
       - authorization_code
       - refresh_token

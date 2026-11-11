@@ -204,8 +204,8 @@ func Test_oauthSnapshot_authzDisabled(t *testing.T) {
 			"foo.example.com /-/wormhole/oauth2",
 		},
 		oauthmngr.StrategyOauth2ProxyMiddleware: {
-			"auth.example.com /-/wormhole/oauth2",
 			"auth.example.com /-/wormhole/oauthmngr",
+			"auth.example.com /oauth2",
 			"bar.example.com /-/wormhole/oauthmngr",
 			"foo.example.com /-/wormhole/oauthmngr",
 		},
@@ -257,7 +257,7 @@ func Test_oauthSnapshot_sharedHost(t *testing.T) {
 				case oauthmngr.StrategyOauth2ProxyMiddleware:
 					expected["/-/wormhole/oauthmngr"] = 1
 					if host == "auth.example.com" {
-						expected["/-/wormhole/oauth2"] = 1
+						expected["/oauth2"] = 1
 					}
 				}
 				assert.Equal(t, expected, counts, host)
@@ -291,7 +291,7 @@ func Test_oauthSnapshot_middleware(t *testing.T) {
 	})
 
 	t.Run("oauth2-proxy route forwards without host rewrite", func(t *testing.T) {
-		r := routes["auth.example.com /-/wormhole/oauth2"]
+		r := routes["auth.example.com /oauth2"]
 		require.NotNil(t, r)
 
 		assert.Equal(t, "wh_oauth2-proxy.svc_4180", r.GetRoute().GetCluster())
@@ -300,7 +300,7 @@ func Test_oauthSnapshot_middleware(t *testing.T) {
 	})
 
 	t.Run("oauth2-proxy is only routed on the auth domain", func(t *testing.T) {
-		assert.NotContains(t, routes, "foo.example.com /-/wormhole/oauth2")
+		assert.NotContains(t, routes, "foo.example.com /oauth2")
 	})
 
 	t.Run("user routes are unchanged", func(t *testing.T) {

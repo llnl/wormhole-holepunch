@@ -10,8 +10,10 @@ func TestPaths(t *testing.T) {
 	}{
 		{"reserved prefix", ReservedPrefix, "/-/wormhole/"},
 		{"oauth2 proxy prefix", Oauth2ProxyPrefix, "/-/wormhole/oauth2"},
+		{"middleware oauth2 proxy prefix", Oauth2ProxyMiddlewarePrefix, "/oauth2"},
 		{"oauth2 proxy auth", Oauth2ProxyAuthPath, "/-/wormhole/oauth2/auth"},
 		{"oauth2 proxy start", Oauth2ProxyStartPath, "/-/wormhole/oauth2/start"},
+		{"middleware oauth2 proxy start", Oauth2ProxyMiddlewareStartPath, "/oauth2/start"},
 		{"callback", CallbackPrefix, "/-/wormhole/oauthmngr"},
 		{"ledger capture", CapturePath, "/v1/oauthmngr/capture"},
 		{"ledger redeem", RedeemPath, "/v1/oauthmngr/redeem"},

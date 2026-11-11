@@ -6,10 +6,15 @@ const (
 	ReservedPrefix = "/-/wormhole/"
 	// Oauth2ProxyPrefix is the oauth2-proxy proxy_prefix, forwarded straight to oauth2-proxy.
 	Oauth2ProxyPrefix = ReservedPrefix + "oauth2"
+	// Oauth2ProxyMiddlewarePrefix is oauth2-proxy's standard proxy_prefix on the
+	// dedicated middleware auth host.
+	Oauth2ProxyMiddlewarePrefix = "/oauth2"
 	// Oauth2ProxyAuthPath resolves sessions through oauth2-proxy.
 	Oauth2ProxyAuthPath = Oauth2ProxyPrefix + "/auth"
 	// Oauth2ProxyStartPath starts an OAuth flow through oauth2-proxy.
 	Oauth2ProxyStartPath = Oauth2ProxyPrefix + "/start"
+	// Oauth2ProxyMiddlewareStartPath starts an OAuth flow on the middleware auth host.
+	Oauth2ProxyMiddlewareStartPath = Oauth2ProxyMiddlewarePrefix + "/start"
 	// CallbackPrefix is the cookie hand-off callback handled by the oauthmngr wasm plugin.
 	CallbackPrefix = ReservedPrefix + "oauthmngr"
 
