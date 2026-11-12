@@ -72,12 +72,12 @@ HOLEPUNCH_TAG ?= local
 
 HOLEPUNCH_PLUGIN_IMAGE_PREFIX ?= ${HOLEPUNCH_IMAGE}
 
-.PHONY: build-certs
-build-certs:
+.PHONY: container-certs
+container-certs:
 	mkdir -p certs
 
 .PHONY: build-container #B Build the Holepunch container image.
-build-container: build-certs
+build-container: container-certs
 	${CONTAINER_RUNTIME} build \
 		-f build/image/Containerfile \
 		--build-arg GO_VERSION=${GO_SEMVER} \
@@ -85,7 +85,7 @@ build-container: build-certs
 		.
 
 .PHONY: build-plugins-container #B Build the combined plugin container image.
-build-plugins-container: build-certs
+build-plugins-container: container-certs
 	${CONTAINER_RUNTIME} build \
 		-f build/image/plugins.Containerfile \
 		--build-arg GO_VERSION=${GO_SEMVER} \
@@ -93,7 +93,7 @@ build-plugins-container: build-certs
 		.
 
 .PHONY: build-wasm-containers #B Build the proxy-wasm container image for each WASM_PLUGINS.
-build-wasm-containers: build-certs
+build-wasm-containers: container-certs
 	set -e; for plugin in ${WASM_PLUGINS}; do \
 		${CONTAINER_RUNTIME} build \
 			-f build/image/wasm.Containerfile \
