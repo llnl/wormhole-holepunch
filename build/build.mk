@@ -72,19 +72,28 @@ HOLEPUNCH_TAG ?= local
 
 HOLEPUNCH_PLUGIN_IMAGE_PREFIX ?= ${HOLEPUNCH_IMAGE}
 
-.PHONY: build-container #B Build Holepunch, combined plugin, and individual proxy-wasm plugin images.
-build-container:
+.PHONY: build-certs
+build-certs:
 	mkdir -p certs
+
+.PHONY: build-container #B Build the Holepunch container image.
+build-container: build-certs
 	${CONTAINER_RUNTIME} build \
 		-f build/image/Containerfile \
 		--build-arg GO_VERSION=${GO_SEMVER} \
 		-t ${HOLEPUNCH_IMAGE}:${HOLEPUNCH_TAG} \
 		.
+
+.PHONY: build-plugins-container #B Build the combined plugin container image.
+build-plugins-container: build-certs
 	${CONTAINER_RUNTIME} build \
 		-f build/image/plugins.Containerfile \
 		--build-arg GO_VERSION=${GO_SEMVER} \
 		-t ${HOLEPUNCH_IMAGE}-plugins:${HOLEPUNCH_TAG} \
 		.
+
+.PHONY: build-wasm-containers #B Build the proxy-wasm container image for each WASM_PLUGINS.
+build-wasm-containers: build-certs
 	set -e; for plugin in ${WASM_PLUGINS}; do \
 		${CONTAINER_RUNTIME} build \
 			-f build/image/wasm.Containerfile \
@@ -93,6 +102,9 @@ build-container:
 			-t ${HOLEPUNCH_PLUGIN_IMAGE_PREFIX}-$$plugin:${HOLEPUNCH_TAG} \
 			.; \
 	done
+
+.PHONY: build-containers #B Build Holepunch, combined plugin, and individual proxy-wasm plugin images.
+build-containers: build-container build-plugins-container build-wasm-containers
 
 .PHONY: sbom #B Generate SBOM for the application using cyclonedx-gomod.
 sbom:
