@@ -21,7 +21,7 @@ GITCOMMIT := $(shell if git status >/dev/null 2>/dev/null; then \
 fi)
 GITBRANCH := $(shell git rev-parse --abbrev-ref HEAD 2>/dev/null)
 GOVERSION := $(shell go version | cut -c12- | awk '{ gsub (" ", "-", $$0); print}')
-GO_SEMVER := $(shell go env GOVERSION | sed 's/^go//')
+GO_SEMVER := $(shell sed -nE 's/^[[:space:]]*-[[:space:]]*go@([^[:space:]]+).*/\1/p' spack.yaml)
 BUILDDATE := $(shell date -u +"%Y-%m-%dT%T%z")
 VERSION := $(if $(GITCOMMIT),$(shell cat VERSION).dev.${GITCOMMIT},$(shell cat VERSION))
 GOARCH := $(shell go env GOARCH)

@@ -78,7 +78,6 @@ build-container:
 	${CONTAINER_RUNTIME} build \
 		-f build/image/Containerfile \
 		--build-arg GO_VERSION=${GO_SEMVER} \
-		--target holepunch \
 		-t ${HOLEPUNCH_IMAGE}:${HOLEPUNCH_TAG} \
 		.
 	${CONTAINER_RUNTIME} build \
