@@ -125,7 +125,9 @@ func (i *internal) convert(raw RawSource) authControls {
 		Kind:        raw.Kind.String(),
 		Destination: raw.Destination.Raw,
 		Source:      raw.Source.Key,
+		SourcePath:  requests.NormalizePath(raw.Source.URL),
 		CommunityID: raw.CommunityID,
+		NoAuth:      raw.NoAuth,
 	}
 }
 

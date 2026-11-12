@@ -130,10 +130,12 @@ type internal struct {
 // designated destination.
 type authControls struct {
 	Source      string      `json:"source"`
+	SourcePath	string      `json:"source_path"`
 	Destination string      `json:"destination"`
 	ID          string      `json:"id"`
 	Kind        string      `json:"kind"`
 	CommunityID string      `json:"community_id"`
+	NoAuth      bool        `json:"no_auth"`
 	Allowed     userDetails `json:"allowed"`
 	Disallowed  userDetails `json:"disallowed"`
 }
