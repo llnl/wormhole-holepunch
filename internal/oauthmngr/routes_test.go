@@ -140,7 +140,7 @@ func Test_newRoute(t *testing.T) {
 		assert.Equal(t, "https://foo.example.com/-/wormhole/oauth2", route.Source.Raw)
 		assert.Equal(t, "http://proxy.svc:4180", route.Destination.Raw)
 		assert.Equal(t, registry.RouteKindOauth2Proxy, route.Kind)
-		assert.False(t, route.NoAuth)
+		assert.True(t, route.NoAuth)
 	})
 
 	t.Run("local reply route has no destination", func(t *testing.T) {
@@ -149,6 +149,7 @@ func Test_newRoute(t *testing.T) {
 		assert.Equal(t, "https://foo.example.com/-/wormhole/oauthmngr", route.Source.Raw)
 		assert.Nil(t, route.Destination.URL)
 		assert.Equal(t, registry.RouteKindOauthCallback, route.Kind)
+		assert.True(t, route.NoAuth)
 	})
 }
 

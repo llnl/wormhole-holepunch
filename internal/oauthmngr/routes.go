@@ -48,6 +48,7 @@ func newRoute(vh virtualHost, prefix string, kind registry.RouteKind, destinatio
 		ID:     "wormhole-" + kind.String() + "-" + vh.host,
 		Source: urlString(vh.scheme + "://" + vh.host + prefix),
 		Kind:   kind,
+		NoAuth: true,
 	}
 
 	if destination != "" {

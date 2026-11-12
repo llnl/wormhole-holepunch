@@ -664,6 +664,19 @@ func Test_routeAuthzFilter(t *testing.T) {
 		assert.True(t, perRoute.GetDisabled())
 		assert.Nil(t, perRoute.GetCheckSettings())
 	})
+
+	t.Run("route kind does not disable authz", func(t *testing.T) {
+		a := routeAuthzFilter(registry.ProxyControls{
+			AuthzContext: ctxExt,
+			Kind:         registry.RouteKindOauth2Proxy,
+		})
+
+		perRoute := &extauthz.ExtAuthzPerRoute{}
+		require.NoError(t, a.UnmarshalTo(perRoute))
+
+		assert.False(t, perRoute.GetDisabled())
+		assert.Equal(t, ctxExt, perRoute.GetCheckSettings().GetContextExtensions())
+	})
 }
 
 func Test_xdsServer_makeRoutes_NoAuth(t *testing.T) {

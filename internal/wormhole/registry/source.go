@@ -36,8 +36,8 @@ type RawSource struct {
 		} `json:"allowed" yaml:"allowed"`
 	} `json:"rules" yaml:"rules"`
 	// NoAuth disables the ext_authz (holepunch-authz) filter for the route. This is an
-	// admin only, internal configuration and must never be decodable from the route
-	// registry (or any JSON).
+	// internal control set by static-source configuration or trusted source expanders and
+	// must never be decodable from the route registry (or any JSON).
 	NoAuth bool `json:"-" yaml:"-"`
 	// Kind identifies the purpose of the route, used by xDS to select the route action and
 	// per-route filter configuration. Only oauthmngr's ExpandSources may establish anything
@@ -51,15 +51,15 @@ type RawSource struct {
 type RouteKind int
 
 const (
-	// RouteKindUpstream forwards to the destination cluster with ext_authz enabled.
+	// RouteKindUpstream forwards to the destination cluster.
 	RouteKindUpstream RouteKind = iota
-	// RouteKindOauth2Proxy forwards to the oauth2-proxy cluster with ext_authz disabled.
+	// RouteKindOauth2Proxy forwards to the oauth2-proxy cluster.
 	RouteKindOauth2Proxy
-	// RouteKindOauthCallback is answered by the oauthmngr wasm plugin with ext_authz
-	// disabled, falling back to a direct_response 404.
+	// RouteKindOauthCallback is answered by the oauthmngr wasm plugin, falling back to a
+	// direct_response 404.
 	RouteKindOauthCallback
-	// RouteKindReserved is a direct_response 404 with ext_authz disabled, reserving the
-	// /-/wormhole/ prefix on every virtual host.
+	// RouteKindReserved is a direct_response 404 reserving the /-/wormhole/ prefix on every
+	// virtual host.
 	RouteKindReserved
 )
 

@@ -323,11 +323,10 @@ func routeMetadataFormat(key string) string {
 }
 
 // routeAuthzFilter establishes the per-route ext_authz configuration. Routes flagged
-// with NoAuth (admin defined static sources only) or injected by oauthmngr (any kind other
-// than upstream) disable the filter entirely, all others bind the route's context
-// extensions into the check.
+// with NoAuth disable the filter; all others bind the route's context extensions into the
+// check.
 func routeAuthzFilter(ctl registry.ProxyControls) *anypb.Any {
-	if ctl.NoAuth || ctl.Kind != registry.RouteKindUpstream {
+	if ctl.NoAuth {
 		return mustMarshalAny(&extauthz.ExtAuthzPerRoute{
 			Override: &extauthz.ExtAuthzPerRoute_Disabled{
 				Disabled: true,
