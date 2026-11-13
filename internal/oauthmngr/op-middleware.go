@@ -10,6 +10,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/cookies"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
@@ -31,6 +32,7 @@ type middlewareManager struct {
 	ledger              *ledger.Store
 	proxy               proxyauth.Resolver
 	cookieName          string
+	proxyCookieName     string
 	internalProxyURL    string
 	ledgerURL           string
 	nonceTTL            int
@@ -82,6 +84,7 @@ func newMiddlewareManager(
 		ledger:              flowStore,
 		proxy:               proxyauth.New(client, ll, oauthArgs.InternalProxyURL, oauthArgs.ProxyCookieName),
 		cookieName:          oauthArgs.CookieName,
+		proxyCookieName:     oauthArgs.ProxyCookieName,
 		internalProxyURL:    oauthArgs.InternalProxyURL,
 		ledgerURL:           oauthArgs.OauthLedgerURL,
 		nonceTTL:            oauthArgs.NonceTTL,
@@ -181,10 +184,22 @@ func (o *middlewareManager) PrepareAuthRedirect(
 // by name, from the request's Cookie header. With the cookie session store the callback splits
 // large sessions into chunks, which are joined. The cookie carries the oauth2-proxy session
 // captured at the auth domain, which is resolved to its access_token through oauth2-proxy.
-// Result.CookieHeader has the cookie (and any chunks) stripped.
+// Result.CookieHeader has both the application session and oauth2-proxy cookies
+// (and any chunks) stripped.
 func (o *middlewareManager) ValidateCookies(
 	ctx context.Context, details requests.RequestDetails,
 ) (Result, *errs.StatusError) {
 	result, sErr := o.proxy.Resolve(ctx, details, o.cookieName, o.sessionStore)
-	return Result{AccessToken: result.AccessToken, CookieHeader: result.CookieHeader}, sErr
+	if sErr != nil {
+		return Result{}, sErr
+	}
+
+	return Result{
+		AccessToken:  result.AccessToken,
+		CookieHeader: o.RemoveSessionCookies(details.Headers[keys.CookieHeader]),
+	}, nil
+}
+
+func (o *middlewareManager) RemoveSessionCookies(cookieHeader string) string {
+	return oauthapi.RemoveCookie(oauthapi.RemoveCookie(cookieHeader, o.cookieName), o.proxyCookieName)
 }

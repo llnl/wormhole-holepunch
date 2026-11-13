@@ -91,3 +91,7 @@ func (r *reverseManager) ValidateCookies(
 	result, sErr := r.proxy.Resolve(ctx, details, r.proxyCookieName, r.proxySessionStore)
 	return Result{AccessToken: result.AccessToken, CookieHeader: result.CookieHeader}, sErr
 }
+
+func (r *reverseManager) RemoveSessionCookies(cookieHeader string) string {
+	return oauthapi.RemoveCookie(cookieHeader, r.proxyCookieName)
+}

@@ -148,6 +148,8 @@ type stubValidator struct {
 
 func (*stubValidator) ExpandSources(r []registry.RawSource) []registry.RawSource { return r }
 
+func (s *stubValidator) RemoveSessionCookies(string) string { return s.result.CookieHeader }
+
 func (s *stubValidator) PrepareAuthRedirect(p string, _ requests.RequestDetails) (oauthmngr.AuthRedirect, *errs.StatusError) {
 	s.gotTarget = p
 

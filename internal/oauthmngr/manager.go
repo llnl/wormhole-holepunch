@@ -48,6 +48,10 @@ type AuthRedirect struct {
 }
 
 type Validator interface {
+	// RemoveSessionCookies removes OAuth session cookies and their chunks before
+	// forwarding an authenticated request, including requests authenticated by WAT.
+	RemoveSessionCookies(cookieHeader string) string
+
 	// ExpandSources preserves application sources and adds each required OAuth route kind
 	// once per hostname, regardless of paths, ports, or schemes.
 	// It does not reserve the entire /-/wormhole/ prefix.

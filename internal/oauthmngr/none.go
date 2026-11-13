@@ -17,6 +17,10 @@ var errOAuthNotConfigured = errors.New("oauth2 flow is not configured")
 // OAuth2 features.
 type noneManager struct{}
 
+func (*noneManager) RemoveSessionCookies(cookieHeader string) string {
+	return cookieHeader
+}
+
 func newNoneManager() Validator {
 	return &noneManager{}
 }

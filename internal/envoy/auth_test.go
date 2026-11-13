@@ -16,6 +16,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
+	"github.com/llnl/wormhole-holepunch/internal/wormhole/token"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_registry"
 )
 
@@ -47,6 +48,29 @@ func makeCheckRequest(headers, ctxExt map[string]string) *auth.CheckRequest {
 }
 
 //
+
+func Test_authServer_allowRequest_CookieCleanup(t *testing.T) {
+	ll := logs.InitializeDiscard()
+	s := &authServer{ll: ll}
+
+	t.Run("overwrites the original cookie header", func(t *testing.T) {
+		resp := s.allowRequest(t.Context(), token.AuthResponse{
+			SetHeaders: map[string]string{keys.CookieHeader: "app=keep"},
+		}, ll)
+		header := findHeader(resp.GetOkResponse().GetHeaders(), keys.CookieHeader)
+		require.NotNil(t, header)
+		assert.Equal(t, "app=keep", header.GetHeader().GetValue())
+		assert.Equal(t, envoy_core.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, header.GetAppendAction())
+	})
+
+	t.Run("removes a session-only cookie header", func(t *testing.T) {
+		resp := s.allowRequest(t.Context(), token.AuthResponse{
+			RemoveHeaders: []string{keys.CookieHeader},
+		}, ll)
+		assert.Equal(t, []string{keys.CookieHeader}, resp.GetOkResponse().GetHeadersToRemove())
+		assert.Nil(t, findHeader(resp.GetOkResponse().GetHeaders(), keys.CookieHeader))
+	})
+}
 
 func Test_authServer_establishReqDetails(t *testing.T) {
 	t.Run("populates fields from context extensions", func(t *testing.T) {

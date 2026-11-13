@@ -48,6 +48,14 @@ Envoy forwards the callback, with authentication disabled, to the oauthmngr
 ledger service, which serves both steps. It never reaches an application
 upstream or Holepunch Auth.
 
+Before forwarding authenticated application requests, Holepunch removes the
+configured oauth2-proxy session cookie (`--oauth-proxy-cookie-name`) and all
+numbered chunks. Middleware also removes the Holepunch application session
+cookie. This applies to both OAuth-session and WAT authentication; unrelated
+application cookies are retained, and an empty Cookie header is removed.
+OAuth endpoints retain the cookies needed by oauth2-proxy and the ledger.
+Routes that bypass authentication do not run this cleanup.
+
 ## Components and Routing
 
 | Component            | Responsibility                                                         |

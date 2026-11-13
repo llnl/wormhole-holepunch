@@ -138,11 +138,19 @@ func (i internal) RequestHeader(
 
 	// Session cookies must never reach the upstream, forward the Cookie header with them
 	// stripped (or drop it entirely when nothing else remains).
-	if session != nil {
-		if session.CookieHeader == "" {
-			resp.RemoveHeaders = append(resp.RemoveHeaders, keys.CookieHeader)
+	cookieHeader := req.Headers[keys.CookieHeader]
+	if session != nil || cookieHeader != "" {
+		var stripped string
+		if session != nil {
+			stripped = session.CookieHeader
 		} else {
-			resp.SetHeaders[keys.CookieHeader] = session.CookieHeader
+			stripped = i.oauth.RemoveSessionCookies(cookieHeader)
+		}
+
+		if stripped == "" {
+			resp.RemoveHeaders = append(resp.RemoveHeaders, keys.CookieHeader)
+		} else if session != nil || stripped != cookieHeader {
+			resp.SetHeaders[keys.CookieHeader] = stripped
 		}
 	}
 

@@ -298,7 +298,24 @@ func Test_middlewareManager_ValidateCookies(t *testing.T) {
 
 		require.Nil(t, sErr)
 		assert.Equal(t, "at:s", result.AccessToken)
-		assert.Equal(t, "_oauth2_proxy=p; a=1", result.CookieHeader)
+		assert.Equal(t, "a=1", result.CookieHeader)
+	})
+
+	t.Run("strips custom proxy cookies and chunks without changing session resolution", func(t *testing.T) {
+		a := middlewareArgs()
+		a.ProxyCookieName = "_custom_proxy"
+		a.CookieName = "_custom_session"
+		a.ProxySessionStore = "cookie"
+		m, err := newMiddlewareManager(mockKVStore(ctrl), echoProxy(ctrl), ll, a)
+		require.NoError(t, err)
+
+		result, sErr := m.ValidateCookies(t.Context(), requests.RequestDetails{
+			Headers: map[string]string{keys.CookieHeader: "a=1; _custom_proxy=p; _custom_proxy_0=x; _custom_proxy_12=y; " +
+				"_custom_session_0=s; _custom_session_1=ession; _custom_proxy_extra=keep; b=2"},
+		})
+		require.Nil(t, sErr)
+		assert.Equal(t, "at:session", result.AccessToken)
+		assert.Equal(t, "a=1; _custom_proxy_extra=keep; b=2", result.CookieHeader)
 	})
 
 	t.Run("session rejected by oauth2-proxy is unauthenticated", func(t *testing.T) {
