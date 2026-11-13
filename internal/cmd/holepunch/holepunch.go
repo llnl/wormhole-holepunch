@@ -143,6 +143,7 @@ func startOauthmngrCmd(ctx context.Context, _ *cli.Command) error {
 		ll,
 		oauthArgs.UserAuthURL,
 		time.Duration(oauthArgs.NonceTTL)*time.Second,
+		oauthArgs.DisableClientIPCheck,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to initialize ledger: %w", err)

@@ -148,10 +148,14 @@ type ledgerFixture struct {
 
 // newLedgerFixture mints a pending flow for 10.0.0.1 targeting foo.example.com.
 func newLedgerFixture(t *testing.T) ledgerFixture {
+	return newLedgerFixtureWithIPCheck(t, false)
+}
+
+func newLedgerFixtureWithIPCheck(t *testing.T, disableClientIPCheck bool) ledgerFixture {
 	t.Helper()
 
 	kv := newStatefulMockKVStore(gomock.NewController(t))
-	l, err := New(kv, ll, "auth.example.com", 300*time.Second)
+	l, err := New(kv, ll, "auth.example.com", 300*time.Second, disableClientIPCheck)
 	require.NoError(t, err)
 
 	flow, err := l.Mint(context.Background(), MintRequest{
@@ -227,7 +231,7 @@ func Test_Store_Mint(t *testing.T) {
 		kv := mock_streams.NewMockKVStore(gomock.NewController(t))
 		storeErr := errors.New("store unavailable")
 		kv.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(storeErr)
-		l, err := New(kv, ll, "auth.example.com", time.Minute)
+		l, err := New(kv, ll, "auth.example.com", time.Minute, false)
 		require.NoError(t, err)
 
 		result, err := l.Mint(context.Background(), MintRequest{
@@ -256,6 +260,40 @@ func Test_ledger_fullFlow(t *testing.T) {
 
 	_, ok = f.record(t)
 	assert.False(t, ok, "redeemed flow is removed")
+}
+
+func Test_Store_DisableClientIPCheck(t *testing.T) {
+	t.Run("allows client IP to change between callbacks", func(t *testing.T) {
+		f := newLedgerFixtureWithIPCheck(t, true)
+
+		_, err := f.capture("10.0.0.2", "auth.example.com")
+		require.NoError(t, err)
+
+		resp, err := f.redeem("10.0.0.3", "foo.example.com")
+		require.NoError(t, err)
+		assert.Equal(t, "https://foo.example.com/app", resp.TargetURL)
+	})
+
+	t.Run("still checks authority", func(t *testing.T) {
+		f := newLedgerFixtureWithIPCheck(t, true)
+
+		_, err := f.capture("10.0.0.2", "other.example.com")
+		require.ErrorIs(t, err, ErrBindingMismatch)
+	})
+
+	t.Run("still checks browser proof", func(t *testing.T) {
+		f := newLedgerFixtureWithIPCheck(t, true)
+		_, err := f.capture("10.0.0.2", "auth.example.com")
+		require.NoError(t, err)
+
+		_, err = f.ledger.Redeem(context.Background(), RedeemRequest{
+			Nonce:         f.nonce,
+			ClientIP:      "10.0.0.3",
+			Authority:     "foo.example.com",
+			BindingSecret: "incorrect",
+		})
+		require.ErrorIs(t, err, ErrBindingMismatch)
+	})
 }
 
 func Test_ledger_Capture(t *testing.T) {
@@ -469,7 +507,7 @@ func Test_ledger_Redeem(t *testing.T) {
 	t.Run("delete failure does not fail redemption", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		kv := mock_streams.NewMockKVStore(ctrl)
-		l, err := New(kv, ll, "auth.example.com", 300*time.Second)
+		l, err := New(kv, ll, "auth.example.com", 300*time.Second, false)
 		require.NoError(t, err)
 		nonce := "AAAAAAAAAAAAAAAAAAAAAA"
 		bindingSecret, bindingHash, err := newBrowserBindingSecret()
@@ -507,7 +545,7 @@ func Test_ledger_Redeem(t *testing.T) {
 
 func Test_New(t *testing.T) {
 	t.Run("valid middleware configuration", func(t *testing.T) {
-		l, err := New(mock_streams.NewMockKVStore(gomock.NewController(t)), ll, "auth.example.com", 300*time.Second)
+		l, err := New(mock_streams.NewMockKVStore(gomock.NewController(t)), ll, "auth.example.com", 300*time.Second, false)
 
 		require.NoError(t, err)
 		assert.NotNil(t, l)
@@ -524,7 +562,7 @@ func Test_New(t *testing.T) {
 
 	for name, args := range invalid {
 		t.Run(name, func(t *testing.T) {
-			l, err := New(nil, ll, args.authDomain, args.nonceTTL)
+			l, err := New(nil, ll, args.authDomain, args.nonceTTL, false)
 
 			require.Error(t, err)
 			assert.Nil(t, l)

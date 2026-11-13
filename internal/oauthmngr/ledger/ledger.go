@@ -42,10 +42,11 @@ type Ledger interface {
 
 // Store mints flows for Holepunch Auth and implements the Ledger consumed by the callback.
 type Store struct {
-	authDomain string
-	kvStore    streams.KVStore
-	ll         logs.Logger
-	ttl        time.Duration
+	authDomain           string
+	kvStore              streams.KVStore
+	ll                   logs.Logger
+	ttl                  time.Duration
+	disableClientIPCheck bool
 }
 
 // New establishes a Store backed by the KV store shared by Holepunch Auth and the ledger
@@ -55,6 +56,7 @@ func New(
 	ll logs.Logger,
 	authDomain string,
 	nonceTTL time.Duration,
+	disableClientIPCheck bool,
 ) (*Store, error) {
 	switch {
 	case authDomain == "":
@@ -64,10 +66,11 @@ func New(
 	}
 
 	return &Store{
-		authDomain: authDomain,
-		kvStore:    kvStore,
-		ll:         ll,
-		ttl:        nonceTTL,
+		authDomain:           authDomain,
+		kvStore:              kvStore,
+		ll:                   ll,
+		ttl:                  nonceTTL,
+		disableClientIPCheck: disableClientIPCheck,
 	}, nil
 }
 
@@ -256,7 +259,7 @@ func (l *Store) transition(
 // checkBinding validates the request against the client IP the flow was minted for and the
 // authority the current step is required to be made against.
 func (l *Store) checkBinding(rec *flowRecord, clientIP, authority, expectedAuthority string) error {
-	if rec.ClientIP == "" || rec.ClientIP != clientIP {
+	if !l.disableClientIPCheck && (rec.ClientIP == "" || rec.ClientIP != clientIP) {
 		l.ll.Warnf("nonce binding failed: client IP mismatch (expected=%s, got=%s)", rec.ClientIP, clientIP)
 		return ErrBindingMismatch
 	}

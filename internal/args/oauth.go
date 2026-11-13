@@ -5,16 +5,17 @@ import (
 )
 
 const (
-	categoryOauth            = "OAuth Management"
-	oauthProxyName           = "oauth-internal-proxy" //nolint:gosec
-	oauthStrategyName        = "oauth-strategy"
-	oauthCookieMaxAgeName    = "oauth-cookie-max-age"
-	oauthCookieNameName      = "oauth-cookie-name"
-	oauthProxyCookieNameName = "oauth-proxy-cookie-name"
-	oauthUserAuthURLName     = "oauth-user-auth-url"
-	oauthNonceTTLName        = "oauth-nonce-ttl"
-	oauthProxySessionStore   = "oauth-proxy-session-store"
-	oauthLedgerURLName       = "oauth-ledger-url"
+	categoryOauth                 = "OAuth Management"
+	oauthProxyName                = "oauth-internal-proxy" //nolint:gosec
+	oauthStrategyName             = "oauth-strategy"
+	oauthCookieMaxAgeName         = "oauth-cookie-max-age"
+	oauthCookieNameName           = "oauth-cookie-name"
+	oauthProxyCookieNameName      = "oauth-proxy-cookie-name"
+	oauthUserAuthURLName          = "oauth-user-auth-url"
+	oauthNonceTTLName             = "oauth-nonce-ttl"
+	oauthProxySessionStore        = "oauth-proxy-session-store"
+	oauthLedgerURLName            = "oauth-ledger-url"
+	oauthDisableClientIPCheckName = "oauth-disable-client-ip-check"
 )
 
 type OauthManagement struct {
@@ -27,6 +28,9 @@ type OauthManagement struct {
 	// NonceTTL is the lifetime in seconds of middleware-flow nonces
 	// (default: 5 minutes).
 	NonceTTL int
+	// DisableClientIPCheck disables binding middleware OAuth flows to the
+	// initiating client's IP address. Host and browser-secret checks remain enabled.
+	DisableClientIPCheck bool
 	// InternalProxyURL is the URL Holepunch uses to reach the oauth2-proxy
 	// service (e.g., http://oauth2-proxy.svc.cluster.local:4180).
 	InternalProxyURL string
@@ -81,6 +85,13 @@ func (f *FlagBuilder) OauthManagementFlags(om *OauthManagement) *FlagBuilder {
 			Sources:     envWrapper("OAUTH_NONCE_TTL"),
 			Usage:       "Lifetime in seconds of middleware-flow nonces",
 			Value:       300,
+		},
+		&cli.BoolFlag{
+			Category:    categoryOauth,
+			Destination: &om.DisableClientIPCheck,
+			Name:        oauthDisableClientIPCheckName,
+			Sources:     envWrapper("OAUTH_DISABLE_CLIENT_IP_CHECK"),
+			Usage:       "Disable client IP binding for middleware OAuth flows",
 		},
 		&cli.StringFlag{
 			Action:      validateURLAction,

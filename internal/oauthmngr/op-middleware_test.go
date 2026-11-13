@@ -142,6 +142,21 @@ func Test_middlewareManager_PrepareAuthRedirect(t *testing.T) {
 		ClientIP: "10.0.0.1",
 	}
 
+	t.Run("allows missing client IP when IP binding is disabled", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		a := middlewareArgs()
+		a.DisableClientIPCheck = true
+		m, err := newMiddlewareManager(mockKVStore(ctrl), echoProxy(ctrl), ll, a)
+		require.NoError(t, err)
+
+		detailsWithoutIP := details
+		detailsWithoutIP.ClientIP = ""
+		redirect, sErr := m.PrepareAuthRedirect("https://foo.example.com/app", detailsWithoutIP)
+
+		require.Nil(t, sErr)
+		assert.NotEmpty(t, redirect.URL)
+	})
+
 	t.Run("mints a bound nonce and redirects through the auth domain", func(t *testing.T) {
 		kv := mock_streams.NewMockKVStore(ctrl)
 		var (

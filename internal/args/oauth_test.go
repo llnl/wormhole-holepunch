@@ -26,6 +26,7 @@ func Test_OauthManagement(t *testing.T) {
 			"--" + oauthCookieMaxAgeName, "43200",
 			"--" + oauthCookieNameName, "_wormhole_session",
 			"--" + oauthNonceTTLName, "300",
+			"--" + oauthDisableClientIPCheckName,
 			"--" + oauthLedgerURLName, "http://oauthmngr.svc:8083",
 			"--" + oauthProxyName, "http://oauth2-proxy.svc.cluster.local:4180",
 			"--" + oauthProxyCookieNameName, "_oauth2_proxy",
@@ -39,6 +40,7 @@ func Test_OauthManagement(t *testing.T) {
 		assert.Equal(t, 43200, om.CookieMaxAge)
 		assert.Equal(t, "_wormhole_session", om.CookieName)
 		assert.Equal(t, 300, om.NonceTTL)
+		assert.True(t, om.DisableClientIPCheck)
 		assert.Equal(t, "http://oauthmngr.svc:8083", om.OauthLedgerURL)
 		assert.Equal(t, "http://oauth2-proxy.svc.cluster.local:4180", om.InternalProxyURL)
 		assert.Equal(t, "_oauth2_proxy", om.ProxyCookieName)
@@ -59,5 +61,6 @@ func Test_OauthManagement(t *testing.T) {
 
 		assert.NoError(t, cmd.Run(t.Context(), []string{"test"}))
 		assert.Equal(t, "cookie", defaults.ProxySessionStore)
+		assert.False(t, defaults.DisableClientIPCheck)
 	})
 }

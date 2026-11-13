@@ -115,11 +115,12 @@ func Initialize(
 		}
 
 		ll.Infof(
-			"OAuth middleware initialized (internal=%s, user_auth=%s, ledger=%s, cookie_max_age=%ds)",
+			"OAuth middleware initialized (internal=%s, user_auth=%s, ledger=%s, cookie_max_age=%ds, disable_client_ip_check=%t)",
 			oauthArgs.InternalProxyURL,
 			oauthArgs.UserAuthURL,
 			oauthArgs.OauthLedgerURL,
 			oauthArgs.CookieMaxAge,
+			oauthArgs.DisableClientIPCheck,
 		)
 
 		return validator, nil
