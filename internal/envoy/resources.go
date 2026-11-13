@@ -93,6 +93,10 @@ func (s *xdsServer) makeClusters(ctls map[string]registry.ProxyControls) []types
 	clusters := make([]types.Resource, 0)
 
 	for _, v := range ctls {
+		if !forwardsUpstream(v.Kind) || v.Destination.URL == nil {
+			continue
+		}
+
 		name := clusterName(v.Destination.URL)
 
 		if !clusterMappings[name] {
@@ -157,12 +161,17 @@ func (s *xdsServer) makeRoutes(
 
 		prefix := requests.NormalizePath(v.Source.URL)
 
-		newRoute := s.singleRoute(
-			clusterName(v.Destination.URL),
-			prefix,
-			v.PrefixRewrite,
-			v,
-		)
+		var newRoute *route.Route
+
+		switch {
+		case !forwardsUpstream(v.Kind):
+			newRoute = s.localReplyRoute(prefix, v)
+		case v.Destination.URL == nil:
+			s.ll.Warnf("skipping route without destination: %s", v.AuthzContext[keys.RouteIDHeader])
+			continue
+		default:
+			newRoute = s.singleRoute(clusterName(v.Destination.URL), prefix, v.PrefixRewrite, v)
+		}
 
 		vh, found := vhMappings[domainName]
 		if found {
@@ -201,6 +210,10 @@ func (s *xdsServer) makeRoutes(
 	return &route.RouteConfiguration{
 		Name:         routeName,
 		VirtualHosts: virtualHosts,
+		// Domains are always generated from the source hostname, so the port of the host or
+		// authority header is never significant when matching them. Unlike
+		// strip_any_host_port, the header itself (relied upon by ext_authz) is left unmodified.
+		IgnorePortInHostMatching: true,
 	}
 }
 
@@ -215,9 +228,6 @@ func (s *xdsServer) singleRoute(
 			ClusterSpecifier: &route.RouteAction_Cluster{
 				Cluster: clusterName,
 			},
-			HostRewriteSpecifier: &route.RouteAction_HostRewriteLiteral{
-				HostRewriteLiteral: ctl.Destination.URL.Host,
-			},
 			PrefixRewrite: prefixRewrite,
 			IdleTimeout:   durationpb.New(s.xdsArgs.IdleTimeout),
 			Timeout:       durationpb.New(s.xdsArgs.RequestTimeout),
@@ -227,13 +237,21 @@ func (s *xdsServer) singleRoute(
 		},
 	}
 
-	if s.xdsArgs.EnableWebSocket {
+	// oauth2-proxy (reverse_proxy=true) relies upon the original Host to build its redirects
+	// and scope its cookie, so it is only rewritten for user routes.
+	if ctl.Kind == registry.RouteKindUpstream {
+		ra.Route.HostRewriteSpecifier = &route.RouteAction_HostRewriteLiteral{
+			HostRewriteLiteral: ctl.Destination.URL.Host,
+		}
+	}
+
+	if s.xdsArgs.EnableWebSocket && ctl.Kind == registry.RouteKindUpstream {
 		ra.Route.UpgradeConfigs = []*route.RouteAction_UpgradeConfig{
 			{UpgradeType: "websocket"},
 		}
 	}
 
-	return &route.Route{
+	r := &route.Route{
 		Match: &route.RouteMatch{
 			PathSpecifier: &route.RouteMatch_Prefix{
 				Prefix: prefix,
@@ -246,6 +264,13 @@ func (s *xdsServer) singleRoute(
 			authzFilter:          routeAuthzFilter(ctl),
 		},
 	}
+
+	// Applied by the router, after header_mutation has stripped any client supplied values.
+	if ctl.Kind == registry.RouteKindOauthCallback {
+		r.RequestHeadersToAdd = callbackRequestHeaders(ctl)
+	}
+
+	return r
 }
 
 // routeFeatures lists the non-standard behaviors enabled for a route. An empty result
@@ -255,6 +280,10 @@ func routeFeatures(ctl registry.ProxyControls) []string {
 
 	if ctl.NoAuth {
 		features = append(features, featureNoAuth)
+	}
+
+	if ctl.Kind != registry.RouteKindUpstream {
+		features = append(features, ctl.Kind.String())
 	}
 
 	return features
@@ -291,8 +320,8 @@ func routeMetadataFormat(key string) string {
 }
 
 // routeAuthzFilter establishes the per-route ext_authz configuration. Routes flagged
-// with NoAuth (admin defined static sources only) disable the filter entirely, all
-// others bind the route's context extensions into the check.
+// with NoAuth disable the filter; all others bind the route's context extensions into the
+// check.
 func routeAuthzFilter(ctl registry.ProxyControls) *anypb.Any {
 	if ctl.NoAuth {
 		return mustMarshalAny(&extauthz.ExtAuthzPerRoute{
@@ -359,34 +388,17 @@ func (s *xdsServer) makeHTTPListener(listenerName, routeName string) *listener.L
 		MergeSlashes:                 true,
 		PathWithEscapedSlashesAction: hcm.HttpConnectionManager_UNESCAPE_AND_REDIRECT,
 
+		// Client address as seen by ext_authz (attributes.source.address) and forwarded to
+		// the oauthmngr ledger on the callback route, which bind OAuth nonces to it.
+		UseRemoteAddress: &wrapperspb.BoolValue{Value: s.xdsArgs.UseRemoteAddress},
+
 		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
 			Rds: &hcm.Rds{
 				ConfigSource:    s.configSource(),
 				RouteConfigName: routeName,
 			},
 		},
-		HttpFilters: []*hcm.HttpFilter{
-			{
-				Name: headerMutationFilter,
-				ConfigType: &hcm.HttpFilter_TypedConfig{
-					TypedConfig: headerMutationFilterConfig,
-				},
-			},
-			{
-				// Required ext_authz filter
-				Name: authzFilter,
-				ConfigType: &hcm.HttpFilter_TypedConfig{
-					TypedConfig: s.authzFilterCfg(),
-				},
-			},
-			{
-				// Router filter - last in the chain
-				Name: httpRouteFilter,
-				ConfigType: &hcm.HttpFilter_TypedConfig{
-					TypedConfig: routerConfig,
-				},
-			},
-		},
+		HttpFilters: s.httpFilters(headerMutationFilterConfig, routerConfig),
 		AccessLog: []*accesslog.AccessLog{{
 			// Access log configuration
 			Name: accessLogFilter,
@@ -425,6 +437,26 @@ func (s *xdsServer) makeHTTPListener(listenerName, routeName string) *listener.L
 				},
 			}},
 		}},
+	}
+}
+
+// httpFilters establishes the ordered HCM filter chain.
+func (s *xdsServer) httpFilters(headerMutationCfg, routerCfg *anypb.Any) []*hcm.HttpFilter {
+	return []*hcm.HttpFilter{
+		{
+			Name:       headerMutationFilter,
+			ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: headerMutationCfg},
+		},
+		{
+			// Required ext_authz filter
+			Name:       authzFilter,
+			ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: s.authzFilterCfg()},
+		},
+		{
+			// Router filter - last in the chain
+			Name:       httpRouteFilter,
+			ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: routerCfg},
+		},
 	}
 }
 

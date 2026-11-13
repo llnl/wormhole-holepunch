@@ -3,11 +3,13 @@ package token
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
@@ -18,6 +20,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/rules"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_logs"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_requests"
@@ -41,52 +44,119 @@ func Test_Initialize(t *testing.T) {
 				TokenExchangePath: "/token",
 				SubtokenPath:      "/subtoken",
 			},
+			oauthmngr.Disabled(),
 		)
 
 		assert.Equal(t, "https://example.com/token", got.(internal).tokenExchangeURL)
 	})
 
-	t.Run("oauth2proxy", func(t *testing.T) {
+	t.Run("oauth validator", func(t *testing.T) {
 		got := Initialize(
 			&aescipher.NoopCipher{},
 			nil,
 			logs.InitializeDiscard(),
-			args.TokenService{
-				TokenHost:         "https://example.com/",
-				OauthExchangePath: "/oauth",
-				TokenExchangePath: "/token",
-				SubtokenPath:      "/subtoken",
-				OauthProxy:        "https://oauth.example.com",
-			},
-		)
-
-		assert.Equal(t, "https://oauth.example.com/oauth2/start", got.(internal).oauth2RedirectURL.String())
-		assert.Equal(t, "https://oauth.example.com/oauth2/auth", got.(internal).oauth2AuthURL.String())
-	})
-
-	t.Run("oauth2proxy redirect override", func(t *testing.T) {
-		got := Initialize(
-			&aescipher.NoopCipher{},
-			nil,
-			logs.InitializeDiscard(),
-			args.TokenService{
-				TokenHost:        "https://example.com/",
-				OauthProxy:       "https://oauth.example.com",
-				OauthRedirectURL: "https://login.example.com/custom/start?prompt=login",
-			},
+			args.TokenService{TokenHost: "https://example.com/", OauthExchangePath: "/oauth"},
+			oauthmngr.Disabled(),
 		).(internal)
 
-		assert.Equal(t, "https://login.example.com/custom/start?prompt=login", got.oauth2RedirectURL.String())
-		assert.Equal(t, "https://oauth.example.com/oauth2/auth", got.oauth2AuthURL.String())
-		assert.Equal(t,
-			"https://login.example.com/custom/start?prompt=login&rd=https%3A%2F%2Fapp.example.com%2Fpage",
-			got.constructProxyRedirect(requests.RequestDetails{
-				Scheme: "https",
-				Host:   "app.example.com",
-				Path:   "/page",
-			}),
-		)
+		assert.Equal(t, oauthmngr.Disabled(), got.oauth)
+		assert.Equal(t, "https://example.com/oauth", got.oauthExchangeURL)
 	})
+}
+
+func Test_internal_RequestHeader_oauthCookies(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	ll := logs.InitializeDiscard()
+	key := "wos.v1-d1ee41918786372d0a719fedbdb30174188fe009252a0336b8bf3508f83f53ce"
+
+	run := func(t *testing.T, cookieHeader string) AuthResponse {
+		t.Helper()
+
+		i := internal{
+			oauth: &stubValidator{result: oauthmngr.Result{
+				AccessToken:  "access.token.example",
+				CookieHeader: cookieHeader,
+			}},
+			kvStore:      cachedSession(ctrl, key, "access.token.example"),
+			cipher:       aescipher.NoopCipher{},
+			tokenSvcArgs: args.TokenService{TokenHeader: tokenHeader},
+			validator:    rules.NewValidator(),
+		}
+
+		_, resp, sErr := i.RequestHeader(t.Context(), ll, requests.RequestDetails{
+			Headers: map[string]string{"cookie": "_oauth2_proxy=session; " + cookieHeader},
+		})
+		assert.Nil(t, sErr)
+
+		return resp
+	}
+
+	t.Run("forwards the cookie header with the session stripped", func(t *testing.T) {
+		resp := run(t, "other=1")
+
+		assert.Equal(t, "other=1", resp.SetHeaders[keys.CookieHeader])
+		assert.Empty(t, resp.RemoveHeaders)
+	})
+
+	t.Run("removes the cookie header when nothing remains", func(t *testing.T) {
+		resp := run(t, "")
+
+		assert.NotContains(t, resp.SetHeaders, keys.CookieHeader)
+		assert.Equal(t, []string{keys.CookieHeader}, resp.RemoveHeaders)
+	})
+}
+
+func Test_internal_RequestHeader_WATCookies(t *testing.T) {
+	for _, strategy := range []string{
+		oauthmngr.StrategyOauth2ProxyMiddleware,
+		oauthmngr.StrategyOauth2ProxyReverse,
+		oauthmngr.StrategyNone,
+	} {
+		t.Run(strategy, func(t *testing.T) {
+			for _, onlySession := range []bool{false, true} {
+				t.Run(fmt.Sprintf("onlySession=%t", onlySession), func(t *testing.T) {
+					ctrl := gomock.NewController(t)
+					ll := logs.InitializeDiscard()
+					oauth, err := oauthmngr.Initialize(nil, nil, ll, args.OauthManagement{
+						Strategy: strategy, InternalProxyURL: "http://proxy:4180",
+						UserAuthURL: "auth.example.com", OauthLedgerURL: "http://ledger:8083",
+						NonceTTL: 300, ProxyCookieName: "_custom_proxy", CookieName: "_custom_session",
+					})
+					require.NoError(t, err)
+
+					id := "c520c08c-0325-48c4-8bd1-57bde8c7c382"
+					wat := id + ".foo"
+					header := "_custom_proxy=p; _custom_proxy_0=x; _custom_proxy_12=y"
+					if strategy == oauthmngr.StrategyOauth2ProxyMiddleware {
+						header += "; _custom_session=s; _custom_session_0=x"
+					}
+					if !onlySession {
+						header += "; app=keep"
+					}
+					i := internal{
+						oauth: oauth, cipher: aescipher.NoopCipher{},
+						kvStore:      cachedSession(ctrl, keys.WormholeAccessToken(id), wat),
+						tokenSvcArgs: args.TokenService{TokenHeader: tokenHeader},
+						validator:    rules.NewValidator(),
+					}
+					_, resp, sErr := i.RequestHeader(t.Context(), ll, requests.RequestDetails{
+						Headers: map[string]string{tokenHeader: wat, keys.CookieHeader: header},
+					})
+					require.Nil(t, sErr)
+					if strategy == oauthmngr.StrategyNone {
+						assert.NotContains(t, resp.SetHeaders, keys.CookieHeader)
+						assert.Empty(t, resp.RemoveHeaders)
+					} else if onlySession {
+						assert.NotContains(t, resp.SetHeaders, keys.CookieHeader)
+						assert.Equal(t, []string{keys.CookieHeader}, resp.RemoveHeaders)
+					} else {
+						assert.Equal(t, "app=keep", resp.SetHeaders[keys.CookieHeader])
+						assert.Empty(t, resp.RemoveHeaders)
+					}
+				})
+			}
+		})
+	}
 }
 
 func Test_internal_RequestHeader(t *testing.T) {

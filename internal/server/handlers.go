@@ -8,29 +8,24 @@ import (
 	"time"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/version"
 )
 
-const (
-	defaultPrefix = "/api/v1/"
-	statePath     = defaultPrefix + "state/"
-	webhookPath   = defaultPrefix + "webhook/"
-
-	invalidJSONMsg = "invalid JSON payload"
-)
+const invalidJSONMsg = "invalid JSON payload"
 
 func (d *data) adminHandlers() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// state
-	mux.HandleFunc(statePath+"ctls", d.ctlsReportHandler)
+	mux.HandleFunc(paths.ControlsPath, d.ctlsReportHandler)
 
 	// webhook
-	mux.HandleFunc(webhookPath+"routes", d.routesWebhookHandler)
-	mux.HandleFunc(webhookPath+"invalidate", d.invalidateWebhookHandler)
+	mux.HandleFunc(paths.RoutesWebhookPath, d.routesWebhookHandler)
+	mux.HandleFunc(paths.InvalidateWebhookPath, d.invalidateWebhookHandler)
 
-	mux.HandleFunc(defaultPrefix+"version", versionHandler)
-	mux.HandleFunc(defaultPrefix+"healthz", healthzHandler)
+	mux.HandleFunc(paths.VersionPath, versionHandler)
+	mux.HandleFunc(paths.HealthPath, healthzHandler)
 	mux.HandleFunc("/", generic404Handler)
 
 	return mux

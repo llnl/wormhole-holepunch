@@ -8,24 +8,57 @@ along with Envoy deployment would look like. The primary proxy target
 is a simple Flask server (`tools/mock-api`) acting as a range of mock
 API servers.
 
-Starting the service is as simple as:
+## Prerequisites and Startup
+
+* Go 1.26 or newer.
+* A running Podman machine or Docker engine with a Compose provider.
+* Python 3 for the automated flow tests; `curl` and `jq` for manual inspection.
+* Available local ports: 3128, 4180, 5556, 8081, 8082, 9001, 9002, 9901,
+  16686, 9411, and 4317.
+
+Start the deployment from the repository root:
 
 ```shell
-λ make dev
-mkdir -p binaries/
-GOOS=linux GOARCH=arm64 go build ...
-mv binaries/holepunch-linux-arm64 binaries/holepunch-dev
-podman compose -p holepunch-dev -f /example/wormhole-holepunch/build/dev/compose.yaml down
-...
+make dev
+# Or build and start in the background:
+make dev-up
+# Select a runtime explicitly if both are installed:
+# make dev-up CONTAINER_RUNTIME=docker
 ```
 
-**Note** the development instance will take ~30 seconds to startup
-before request can be accepted. You'll notice messages like this
-appear once everything is up and running the test clusters are available:
+Both startup targets rebuild the Linux executable for the host's Go architecture,
+then recreate the containers.
+
+Allow at least 30 seconds for startup (longer on the first run while images and
+mock-server dependencies download). Containers being started does not mean Envoy
+has received its routes yet. Check status and unauthenticated readiness with:
 
 ```shell
-[envoy]            | [2026-03-13 05:25:31.986][1][info][upstream] [source/common/upstream/cds_api_helper.cc:71] cds: added/updated 2 cluster(s), skipped 0 unmodified cluster(s)
+make dev-ps
+curl -fsS http://127.0.0.1:3128/ping | jq
+make dev-test
 ```
+
+`make dev-test` waits up to 120 seconds for routing and the initial auth redirect,
+then exits nonzero on any failed assertion.
+
+## What Runs Locally
+
+| Service                      | Role                                                     |
+|------------------------------|----------------------------------------------------------|
+| Envoy                        | Application proxy                                        |
+| Holepunch Auth               | Session validation and browser-bound flow creation       |
+| Holepunch oauthmngr + NATS   | Session hand-off callbacks and single-use flow ledger     |
+| oauth2-proxy + Redis         | OAuth/session validation and session storage             |
+| Dex                          | Local OIDC provider with development users               |
+| Mock API                     | Route registry, token exchange, and `/whoami` upstream   |
+| Holepunch admin, cacher, xDS | Reporting, cached configuration, and Envoy configuration |
+| Mock socket, Jaeger          | WebSocket upstream and trace UI                          |
+
+Redis is **oauth2-proxy's session store**, not the flow ledger. Its configuration
+must agree with `HOLEPUNCH_OAUTH_PROXY_SESSION_STORE=redis`. The shared auth host
+is served by Envoy on port 3128; port 4180 is oauth2-proxy's direct diagnostic
+endpoint, not the browser entry point.
 
 ## Token Requests
 
@@ -60,31 +93,27 @@ $ curl -s -H "X-Token: 6f1dd5eb-d058-433f-89b7-1f87980b1d0d.sub" http://localhos
 }
 ```
 
-## Oauth Request
+## Browser OAuth Flow
 
-In order to test Holepunch support for the oauth2 code flow
-(relying upon [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy)),
-you will first need to add several entries to your host systems
+For manual browser testing, add the following entries to your host system's
 `/etc/hosts` file:
 
-```
+```text
 # Utilized for Holepunch dev environment
 127.0.0.1       envoy.holepunch.localwormhole
+127.0.0.1       app.holepunch.localwormhole
+127.0.0.1       auth.holepunch.localwormhole
 127.0.0.1       dex.holepunch.localwormhole
-127.0.0.1       oauth.holepunch.localwormhole
 ```
 
-Next from your browser navigate to:
-[envoy.holepunch.localwormhole:3128/whoami](http://envoy.holepunch.localwormhole:3128/whoami).
-You'll be prompted to login through Dex, the provided dev
-credentials are:
+Navigate to
+[http://envoy.holepunch.localwormhole:3128/whoami](http://envoy.holepunch.localwormhole:3128/whoami).
+The development credentials are:
 
 * `foo@example.com`/`password`
-* `bar@exampel.com`/`password` (user prevented from generating a Jump Token).
+* `bar@example.com`/`password` (authenticates with Dex but cannot exchange for a Jump Token)
 
-The [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy) will handle the
-authentication flow and cookie management (see the `_wormhole_holepunch_test`
-cookie in your browser).
+Utilize your browser's network inspection tools to verify the flow.
 
 ## Admin API
 
@@ -95,3 +124,17 @@ understanding of routing and authorization.
 ```shell
 curl -s http://127.0.0.1:8082/api/v1/state/ctls | jq
 ```
+
+Inspect the generated route kinds:
+
+```shell
+curl -fsS http://127.0.0.1:8082/api/v1/state/ctls |
+  jq 'to_entries[] | {id: .key, host: .value.source, kind: .value.kind}'
+```
+
+Expect `upstream` and `oauth-callback` routes on each application
+host, plus `oauth2-proxy` and `oauth-callback` routes on the auth
+host. This report is the admin service's reconstruction, not proof Envoy
+accepted xDS. For applied configuration, inspect
+[Envoy config dump](http://127.0.0.1:9901/config_dump); traces are available in
+[Jaeger](http://127.0.0.1:16686).

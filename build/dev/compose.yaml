@@ -34,6 +34,8 @@ services:
       dev-network:
         aliases:
           - envoy.holepunch.localwormhole
+          - app.holepunch.localwormhole
+          - auth.holepunch.localwormhole
           - envoy
 
   holepunch-admin:
@@ -97,6 +99,24 @@ services:
     volumes:
       - ../../binaries:/binaries
       - ./static.yaml:/etc/holepunch/static.yaml:ro
+    networks:
+      - dev-network
+
+  holepunch-oauthmngr:
+    image: registry.access.redhat.com/ubi9/ubi:latest
+    depends_on:
+      mock-api:
+        condition: service_healthy
+    env_file:
+      - holepunch.env
+    environment:
+      - HOLEPUNCH_LOGGING_LEVEL=debug
+      - HOLEPUNCH_OTEL_ENDPOINT=jaeger:4317
+    command:
+      - /binaries/holepunch-dev
+      - oauthmngr
+    volumes:
+      - ../../binaries:/binaries
     networks:
       - dev-network
 

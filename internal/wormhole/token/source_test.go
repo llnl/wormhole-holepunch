@@ -3,22 +3,26 @@ package token
 import (
 	"context"
 	"errors"
-	"net/url"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc/codes"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/aescipher"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/errs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/rules"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole"
+	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_requests"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_streams"
 )
@@ -132,6 +136,52 @@ func Test_decodeTrustedJWT(t *testing.T) {
 	})
 }
 
+// stubValidator is a configurable oauthmngr.Validator.
+type stubValidator struct {
+	result         oauthmngr.Result
+	err            *errs.StatusError
+	redirect       string
+	redirectCookie *http.Cookie
+	redirectErr    *errs.StatusError
+	gotTarget      string
+}
+
+func (*stubValidator) ExpandSources(r []registry.RawSource) []registry.RawSource { return r }
+
+func (s *stubValidator) RemoveSessionCookies(string) string { return s.result.CookieHeader }
+
+func (s *stubValidator) PrepareAuthRedirect(p string, _ requests.RequestDetails) (oauthmngr.AuthRedirect, *errs.StatusError) {
+	s.gotTarget = p
+
+	return oauthmngr.AuthRedirect{URL: s.redirect, SetCookie: s.redirectCookie}, s.redirectErr
+}
+
+func (s *stubValidator) ValidateCookies(context.Context, requests.RequestDetails) (oauthmngr.Result, *errs.StatusError) {
+	return s.result, s.err
+}
+
+const testJumpToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl9pZCI6ImM1MjBjMDhjLTAzMjUtNDhjNC04YmQxLTU3YmRlOGM3YzM4MiIsInN1YiI6ImZvbyIsImdyb3VwcyI6WyJwcm9qZWN0MSIsInByb2plY3QyIl0sImR1aWQiOiIxMjM0NTY3ODkiLCJleHAiOjI2MzU2NDk4NTIuNTU2NjgzfQ.placeholder"
+
+// cachedSession establishes a KV store holding a cached session for the access token.
+func cachedSession(ctrl *gomock.Controller, key, accessToken string) streams.KVStore {
+	m := mock_streams.NewMockKVStore(ctrl)
+	m.EXPECT().Get(gomock.Any(), key, gomock.Any()).Return(nil).Do(
+		func(_ context.Context, _ string, v any) {
+			if cs, ok := v.(*cache); ok {
+				cs.EncryptedToken = accessToken
+				cs.EncryptedJumpToken = testJumpToken
+				cs.Payload = wormhole.TokenPayload{
+					TokenID:  "c520c08c-0325-48c4-8bd1-57bde8c7c382",
+					Username: "foo",
+					Groups:   []string{"project1", "project2"},
+					Exp:      wormhole.FloatTime{Time: time.Now().Add(time.Hour)},
+				}
+			}
+		})
+
+	return m
+}
+
 func Test_internal_oauthFlow(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -139,179 +189,134 @@ func Test_internal_oauthFlow(t *testing.T) {
 	ll := logs.InitializeDiscard()
 
 	key := "wos.v1-d1ee41918786372d0a719fedbdb30174188fe009252a0336b8bf3508f83f53ce"
-
-	oauth2AuthURL, _ := url.Parse("http://example.com/oauth2/auth")
-	oauth2RedirectURL, _ := url.Parse("http://example.com/oauth2/start")
-
-	tests := map[string]struct {
-		i             internal
-		req           requests.RequestDetails
-		assertError   func(*testing.T, *errs.StatusError)
-		assertPayload func(*testing.T, wormhole.TokenPayload)
-	}{
-		"auth flow": {
-			i: internal{
-				oauth2Enabled: true,
-				client: func() requests.Client {
-					m := mock_requests.NewMockClient(ctrl)
-					m.EXPECT().GetHeaders(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
-						map[string]string{
-							keys.Oauth2ProxyAccessTokenHeader: "access.token.example",
-						},
-						nil,
-					)
-					m.EXPECT().GetJSON(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Do(
-						func(_ context.Context, _ string, _ map[string]string, v any) {
-							if e, ok := v.(*exchangeResp); ok {
-								e.JWT = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl9pZCI6ImM1MjBjMDhjLTAzMjUtNDhjNC04YmQxLTU3YmRlOGM3YzM4MiIsInN1YiI6ImZvbyIsImdyb3VwcyI6WyJwcm9qZWN0MSIsInByb2plY3QyIl0sImR1aWQiOiIxMjM0NTY3ODkiLCJleHAiOjI2MzU2NDk4NTIuNTU2NjgzfQ.placeholder"
-							}
-						})
-					return m
-				}(),
-				kvStore: func() streams.KVStore {
-					m := mock_streams.NewMockKVStore(ctrl)
-					m.EXPECT().Get(gomock.Any(), key, gomock.Any()).Return(errors.New("not found"))
-					m.EXPECT().Put(gomock.Any(), key, gomock.Any()).Return(nil)
-					return m
-				}(),
-			},
-			req: requests.RequestDetails{
-				Headers: map[string]string{
-					"cookie": "auth=session",
-				},
-			},
-			assertError: func(t *testing.T, sErr *errs.StatusError) {
-				assert.Nil(t, sErr)
-			},
-		},
-		"invalid auth redirect": {
-			i: internal{
-				oauth2Enabled: true,
-				client: func() requests.Client {
-					m := mock_requests.NewMockClient(ctrl)
-					m.EXPECT().GetHeaders(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
-						map[string]string{},
-						&requests.RequestFailedError{},
-					)
-					return m
-				}(),
-			},
-			req: requests.RequestDetails{
-				Headers: map[string]string{
-					"cookie": "auth=session",
-				},
-			},
-			assertError: func(t *testing.T, sErr *errs.StatusError) {
-				assert.ErrorContains(t, sErr, "redirect")
-			},
-		},
-		"disabled": {
-			i: internal{
-				oauth2Enabled: false,
-			},
-			assertError: func(t *testing.T, sErr *errs.StatusError) {
-				assert.ErrorContains(t, sErr, "oauth2 support currently disabled")
-			},
-		},
-		"cache hit": {
-			i: internal{
-				oauth2Enabled: true,
-				client: func() requests.Client {
-					m := mock_requests.NewMockClient(ctrl)
-					m.EXPECT().GetHeaders(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
-						map[string]string{
-							keys.Oauth2ProxyAccessTokenHeader: "access.token.example",
-						},
-						nil,
-					)
-					return m
-				}(),
-				kvStore: func() streams.KVStore {
-					m := mock_streams.NewMockKVStore(ctrl)
-					m.EXPECT().Get(gomock.Any(), key, gomock.Any()).Return(nil).Do(
-						func(_ context.Context, _ string, v any) {
-							if cs, ok := v.(*cache); ok {
-								cs.EncryptedToken = "access.token.example"
-								cs.EncryptedJumpToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl9pZCI6ImM1MjBjMDhjLTAzMjUtNDhjNC04YmQxLTU3YmRlOGM3YzM4MiIsInN1YiI6ImZvbyIsImdyb3VwcyI6WyJwcm9qZWN0MSIsInByb2plY3QyIl0sImR1aWQiOiIxMjM0NTY3ODkiLCJleHAiOjI2MzU2NDk4NTIuNTU2NjgzfQ.placeholder"
-								cs.Payload = wormhole.TokenPayload{
-									TokenID:  "c520c08c-0325-48c4-8bd1-57bde8c7c382",
-									Username: "foo",
-									Groups:   []string{"project1", "project2"},
-									Exp:      wormhole.FloatTime{Time: time.Now().Add(time.Hour)},
-								}
-							}
-						})
-					return m
-				}(),
-			},
-			req: requests.RequestDetails{
-				Headers: map[string]string{
-					"cookie": "auth=session",
-				},
-			},
-			assertError: func(t *testing.T, sErr *errs.StatusError) {
-				assert.Nil(t, sErr)
-			},
-			assertPayload: func(t *testing.T, tp wormhole.TokenPayload) {
-				assert.Equal(t, "c520c08c-0325-48c4-8bd1-57bde8c7c382", tp.TokenID)
-				assert.Equal(t, "foo", tp.Username)
-			},
-		},
-		"cache miss": {
-			i: internal{
-				oauth2Enabled: true,
-				client: func() requests.Client {
-					m := mock_requests.NewMockClient(ctrl)
-					m.EXPECT().GetHeaders(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(
-						map[string]string{
-							keys.Oauth2ProxyAccessTokenHeader: "access.token.example",
-						},
-						nil,
-					)
-					return m
-				}(),
-				kvStore: func() streams.KVStore {
-					m := mock_streams.NewMockKVStore(ctrl)
-					m.EXPECT().Get(gomock.Any(), key, gomock.Any()).Return(nil).Do(
-						func(_ context.Context, _ string, v any) {
-							if cs, ok := v.(*cache); ok {
-								cs.EncryptedToken = "access.token.old"
-								cs.EncryptedJumpToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl9pZCI6ImM1MjBjMDhjLTAzMjUtNDhjNC04YmQxLTU3YmRlOGM3YzM4MiIsInN1YiI6ImZvbyIsImdyb3VwcyI6WyJwcm9qZWN0MSIsInByb2plY3QyIl0sImR1aWQiOiIxMjM0NTY3ODkiLCJleHAiOjI2MzU2NDk4NTIuNTU2NjgzfQ.placeholder"
-								cs.Payload = wormhole.TokenPayload{
-									TokenID:  "c520c08c-0325-48c4-8bd1-57bde8c7c382",
-									Username: "foo",
-									Groups:   []string{"project1", "project2"},
-									Exp:      wormhole.FloatTime{Time: time.Now().Add(time.Hour)},
-								}
-							}
-						})
-					return m
-				}(),
-			},
-			req: requests.RequestDetails{
-				Headers: map[string]string{
-					"cookie": "auth=session",
-				},
-			},
-			assertError: func(t *testing.T, sErr *errs.StatusError) {
-				assert.ErrorContains(t, sErr, "redirect")
-			},
-		},
+	session := oauthmngr.Result{AccessToken: "access.token.example", CookieHeader: "other=1"}
+	req := requests.RequestDetails{
+		Host:    "app.example.com",
+		Scheme:  "https",
+		Path:    "/page?x=1",
+		Headers: map[string]string{"cookie": "_oauth2_proxy=session; other=1"},
 	}
 
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			tt.i.cipher = aescipher.NoopCipher{}
-			tt.i.oauth2RedirectURL = oauth2RedirectURL
-			tt.i.oauth2AuthURL = oauth2AuthURL
+	t.Run("exchanges the session access token", func(t *testing.T) {
+		i := internal{
+			oauth: &stubValidator{result: session},
+			client: func() requests.Client {
+				m := mock_requests.NewMockClient(ctrl)
+				m.EXPECT().GetJSON(gomock.Any(), "/oauth", map[string]string{
+					keys.Oauth2ProxyAccessTokenHeader: "access.token.example",
+				}, gomock.Any()).Return(nil).Do(
+					func(_ context.Context, _ string, _ map[string]string, v any) {
+						if e, ok := v.(*exchangeResp); ok {
+							e.JWT = testJumpToken
+						}
+					})
+				return m
+			}(),
+			kvStore: func() streams.KVStore {
+				m := mock_streams.NewMockKVStore(ctrl)
+				m.EXPECT().Get(gomock.Any(), key, gomock.Any()).Return(errors.New("not found"))
+				m.EXPECT().Put(gomock.Any(), key, gomock.Any()).Return(nil)
+				return m
+			}(),
+			oauthExchangeURL: "/oauth",
+			cipher:           aescipher.NoopCipher{},
+		}
 
-			got, _, err := tt.i.oauthFlow(t.Context(), ll, tt.req)
+		payload, jwt, got, sErr := i.oauthFlow(t.Context(), ll, req)
 
-			tt.assertError(t, err)
+		assert.Nil(t, sErr)
+		assert.Equal(t, "foo", payload.Username)
+		assert.Equal(t, testJumpToken, jwt)
+		assert.Equal(t, &session, got)
+	})
 
-			if tt.assertPayload != nil {
-				tt.assertPayload(t, got)
-			}
-		})
-	}
+	t.Run("cache hit", func(t *testing.T) {
+		i := internal{
+			oauth:   &stubValidator{result: session},
+			kvStore: cachedSession(ctrl, key, "access.token.example"),
+			cipher:  aescipher.NoopCipher{},
+		}
+
+		payload, _, got, sErr := i.oauthFlow(t.Context(), ll, req)
+
+		assert.Nil(t, sErr)
+		assert.Equal(t, "c520c08c-0325-48c4-8bd1-57bde8c7c382", payload.TokenID)
+		assert.Equal(t, &session, got)
+	})
+
+	t.Run("invalid session starts a flow returning to the request", func(t *testing.T) {
+		bindingCookie := &http.Cookie{
+			Name:     "_wormhole_oauth_flow_nonce",
+			Value:    "browser-proof",
+			Path:     paths.CallbackPrefix,
+			MaxAge:   300,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		}
+		stub := &stubValidator{
+			err:            errs.SimpleAuthErr(errors.New("no session")),
+			redirect:       "https://auth.example.com/-/wormhole/oauth2/start?rd=x",
+			redirectCookie: bindingCookie,
+		}
+		i := internal{oauth: stub}
+
+		_, _, got, sErr := i.oauthFlow(t.Context(), ll, req)
+
+		assert.Nil(t, got)
+		redirect, url := sErr.RedirectRequired()
+		assert.True(t, redirect)
+		assert.Equal(t, "https://auth.example.com/-/wormhole/oauth2/start?rd=x", url)
+		assert.Equal(t, "https://app.example.com/page?x=1", stub.gotTarget, "query string is retained")
+		assert.Equal(t, bindingCookie.String(), sErr.Headers()[keys.SetCookieHeader])
+		assert.Equal(t, "no-store", sErr.Headers()["cache-control"])
+	})
+
+	t.Run("cached token mismatch starts a flow", func(t *testing.T) {
+		i := internal{
+			oauth:   &stubValidator{result: session, redirect: "https://start"},
+			kvStore: cachedSession(ctrl, key, "access.token.old"),
+			cipher:  aescipher.NoopCipher{},
+		}
+
+		_, _, _, sErr := i.oauthFlow(t.Context(), ll, req)
+
+		redirect, _ := sErr.RedirectRequired()
+		assert.True(t, redirect)
+	})
+
+	t.Run("no flow available (none strategy) is unauthenticated", func(t *testing.T) {
+		i := internal{oauth: &stubValidator{
+			err:         errs.SimpleAuthErr(errors.New("oauth2 flow is not configured")),
+			redirectErr: errs.SimpleInternalErr(errors.New("oauth2 flow is not configured")),
+		}}
+
+		_, _, _, sErr := i.oauthFlow(t.Context(), ll, req)
+
+		redirect, _ := sErr.RedirectRequired()
+		assert.False(t, redirect)
+		assert.Equal(t, int32(codes.Unauthenticated), sErr.Code())
+	})
+
+	t.Run("internal failures never redirect", func(t *testing.T) {
+		stub := &stubValidator{
+			err:      errs.SimpleInternalErr(errors.New("oauth2-proxy unavailable")),
+			redirect: "https://start",
+		}
+		i := internal{oauth: stub}
+
+		_, _, _, sErr := i.oauthFlow(t.Context(), ll, req)
+
+		redirect, _ := sErr.RedirectRequired()
+		assert.False(t, redirect)
+		assert.Equal(t, int32(codes.Internal), sErr.Code())
+		assert.Empty(t, stub.gotTarget)
+	})
+}
+
+func Test_requestURL(t *testing.T) {
+	assert.Equal(t, "https://app.example.com/page?x=1",
+		requestURL(requests.RequestDetails{Host: "app.example.com", Path: "/page?x=1"}))
+	assert.Equal(t, "http://app.example.com/",
+		requestURL(requests.RequestDetails{Scheme: "http", Host: "app.example.com", Path: "/"}))
 }

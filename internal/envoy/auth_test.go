@@ -16,6 +16,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
+	"github.com/llnl/wormhole-holepunch/internal/wormhole/token"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_registry"
 )
 
@@ -48,6 +49,29 @@ func makeCheckRequest(headers, ctxExt map[string]string) *auth.CheckRequest {
 
 //
 
+func Test_authServer_allowRequest_CookieCleanup(t *testing.T) {
+	ll := logs.InitializeDiscard()
+	s := &authServer{ll: ll}
+
+	t.Run("overwrites the original cookie header", func(t *testing.T) {
+		resp := s.allowRequest(t.Context(), token.AuthResponse{
+			SetHeaders: map[string]string{keys.CookieHeader: "app=keep"},
+		}, ll)
+		header := findHeader(resp.GetOkResponse().GetHeaders(), keys.CookieHeader)
+		require.NotNil(t, header)
+		assert.Equal(t, "app=keep", header.GetHeader().GetValue())
+		assert.Equal(t, envoy_core.HeaderValueOption_OVERWRITE_IF_EXISTS_OR_ADD, header.GetAppendAction())
+	})
+
+	t.Run("removes a session-only cookie header", func(t *testing.T) {
+		resp := s.allowRequest(t.Context(), token.AuthResponse{
+			RemoveHeaders: []string{keys.CookieHeader},
+		}, ll)
+		assert.Equal(t, []string{keys.CookieHeader}, resp.GetOkResponse().GetHeadersToRemove())
+		assert.Nil(t, findHeader(resp.GetOkResponse().GetHeaders(), keys.CookieHeader))
+	})
+}
+
 func Test_authServer_establishReqDetails(t *testing.T) {
 	t.Run("populates fields from context extensions", func(t *testing.T) {
 		s := &authServer{
@@ -59,7 +83,7 @@ func Test_authServer_establishReqDetails(t *testing.T) {
 				"x-token": "tok-abc",
 			},
 			map[string]string{
-				keys.RouteIDHeader:           "route-123",
+				keys.RouteIDHeader:        "route-123",
 				keys.WormholeHostHeader:   "api.example.com",
 				keys.WormholeSchemeHeader: "https",
 				keys.CommunityHeader:      "comm-456",
@@ -73,6 +97,31 @@ func Test_authServer_establishReqDetails(t *testing.T) {
 		assert.Equal(t, "https", got.Scheme)
 		assert.Equal(t, "comm-456", got.CommunityID)
 		assert.Equal(t, "tok-abc", got.Headers["x-token"])
+	})
+
+	t.Run("path from the request, including the query", func(t *testing.T) {
+		req := makeCheckRequest(map[string]string{}, map[string]string{})
+		req.Attributes.Request.Http.Path = "/app?x=1"
+
+		got := (&authServer{}).establishReqDetails(req)
+
+		assert.Equal(t, "/app?x=1", got.Path)
+	})
+
+	t.Run("client IP from the downstream source address", func(t *testing.T) {
+		req := makeCheckRequest(map[string]string{}, map[string]string{})
+		req.Attributes.Source = &auth.AttributeContext_Peer{
+			Address: &envoy_core.Address{Address: &envoy_core.Address_SocketAddress{
+				SocketAddress: &envoy_core.SocketAddress{
+					Address:       "10.0.0.1",
+					PortSpecifier: &envoy_core.SocketAddress_PortValue{PortValue: 51234},
+				},
+			}},
+		}
+
+		got := (&authServer{}).establishReqDetails(req)
+
+		assert.Equal(t, "10.0.0.1", got.ClientIP)
 	})
 
 	t.Run("DevHostHeader overrides host from request header", func(t *testing.T) {

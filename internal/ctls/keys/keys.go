@@ -14,6 +14,9 @@ const (
 		with a range of different interfaces.
 	*/
 
+	// ClientIPHeader carries Envoy's downstream remote address to the oauthmngr ledger on
+	// the OAuth callback route, the same source ext_authz binds OAuth nonces to.
+	ClientIPHeader               = "x-wormhole-client-ip"
 	CookieHeader                 = "cookie"
 	CommunityHeader              = "x-wormhole-community"
 	Oauth2ProxyAccessTokenHeader = "x-auth-request-access-token" // nolint: gosec

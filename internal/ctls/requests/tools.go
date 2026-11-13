@@ -31,6 +31,10 @@ type RequestDetails struct {
 	// Path use specified in request, rely on Envoy/proxy cleanup rules, by default no
 	// additional validation preformed.
 	Path string
+	// ClientIP is the downstream remote address determined by Envoy's HCM
+	// (attributes.source.address). Envoy forwards the same address to the oauthmngr
+	// ledger on the callback route, so nonce bindings remain consistent.
+	ClientIP string
 }
 
 //

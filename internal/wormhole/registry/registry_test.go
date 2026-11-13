@@ -805,3 +805,100 @@ func Test_authControls_enforce(t *testing.T) {
 		})
 	}
 }
+
+func Test_WithSourceExpander(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	authRoute := RawSource{ID: "injected-auth", Kind: RouteKindOauth2Proxy}
+	authRoute.Source, _ = keys.NormalizeURL("https://auth.example.com/-/wormhole/oauth2")
+	authRoute.Destination, _ = keys.NormalizeURL("http://oauth2-proxy:4180")
+
+	var seen []RawSource
+
+	expander := func(sources []RawSource) []RawSource {
+		seen = sources
+
+		return append(append([]RawSource{}, sources...), authRoute)
+	}
+
+	got, err := Initialize(
+		context.Background(),
+		mock_requests.NewMockClient(ctrl),
+		mock_streams.NewMockPubSub(ctrl),
+		args.RouteRegistry{RegistryHost: tarURL, StaticCfg: "../../../test/data/static.yaml"},
+		logs.InitializeDiscard(),
+		WithSourceExpander(expander),
+	)
+	assert.NoError(t, err)
+
+	t.Run("expander receives the static sources", func(t *testing.T) {
+		assert.Len(t, seen, len(got.(*internal).staticSrc))
+	})
+
+	t.Run("injected routes are established with their kind", func(t *testing.T) {
+		ctl, ok := got.FetchProxyControls()["injected-auth"]
+
+		assert.True(t, ok)
+		assert.Equal(t, RouteKindOauth2Proxy, ctl.Kind)
+	})
+
+	t.Run("injected hosts are trusted redirect targets", func(t *testing.T) {
+		assert.True(t, got.AllowedRedirect("https://auth.example.com/-/wormhole/oauth2/start"))
+	})
+
+	t.Run("static sources are not modified by later updates", func(t *testing.T) {
+		before := len(got.(*internal).staticSrc)
+
+		src, _ := keys.NormalizeURL("https://registry.example.com")
+		got.(*internal).updateCtls([]RawSource{{ID: "registry-route", Source: src, Destination: src}})
+
+		assert.Len(t, got.(*internal).staticSrc, before)
+	})
+}
+
+func Test_RouteKind_String(t *testing.T) {
+	assert.Equal(t, "upstream", RouteKindUpstream.String())
+	assert.Equal(t, "oauth2-proxy", RouteKindOauth2Proxy.String())
+	assert.Equal(t, "oauth-callback", RouteKindOauthCallback.String())
+	assert.Equal(t, "reserved", RouteKindReserved.String())
+	assert.Equal(t, "unknown(9)", RouteKind(9).String())
+}
+
+func Test_updateCtls_rejectsReserved(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	injected := RawSource{ID: "injected-callback", Kind: RouteKindOauthCallback}
+	injected.Source, _ = keys.NormalizeURL("https://foo.example.com/-/wormhole/oauthmngr")
+
+	got, err := Initialize(
+		context.Background(),
+		mock_requests.NewMockClient(ctrl),
+		mock_streams.NewMockPubSub(ctrl),
+		args.RouteRegistry{RegistryHost: tarURL},
+		logs.InitializeDiscard(),
+		WithSourceExpander(func(sources []RawSource) []RawSource {
+			return append(append([]RawSource{}, sources...), injected)
+		}),
+	)
+	assert.NoError(t, err)
+
+	route := func(id, src string) RawSource {
+		u, _ := keys.NormalizeURL(src)
+		dst, _ := keys.NormalizeURL("http://upstream:8080")
+
+		return RawSource{ID: id, Source: u, Destination: dst}
+	}
+
+	got.(*internal).updateCtls([]RawSource{
+		route("valid", "https://foo.example.com/app"),
+		route("reserved", "https://foo.example.com/-/wormhole/oauth2"),
+		route("also-valid", "https://bar.example.com/"),
+	})
+
+	ctls := got.FetchProxyControls()
+
+	assert.Contains(t, ctls, "valid", "other routes still update")
+	assert.Contains(t, ctls, "also-valid")
+	assert.NotContains(t, ctls, "reserved")
+	assert.Contains(t, ctls, "injected-callback", "routes injected by the expander are unaffected")
+}
