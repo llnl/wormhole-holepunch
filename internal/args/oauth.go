@@ -15,7 +15,6 @@ const (
 	oauthNonceTTLName        = "oauth-nonce-ttl"
 	oauthProxySessionStore   = "oauth-proxy-session-store"
 	oauthLedgerURLName       = "oauth-ledger-url"
-	oauthWasmPathName        = "oauth-wasm-path"
 )
 
 type OauthManagement struct {
@@ -38,8 +37,8 @@ type OauthManagement struct {
 	// ProxySessionStore must match oauth2-proxy's session_store_type (cookie or
 	// redis). Cookie sessions may be split into numbered chunks.
 	ProxySessionStore string
-	// OauthLedgerURL is the URL of the oauthmngr session Ledger, reached by the oauthmngr wasm
-	// plugin through a generated cluster. Required for the oauth2-proxy-middleware strategy.
+	// OauthLedgerURL is the URL of the oauthmngr session Ledger, Envoy forwards the OAuth
+	// callback route to it. Required for the oauth2-proxy-middleware strategy.
 	OauthLedgerURL string
 	// Strategy selects how OAuth sessions are handled: none,
 	// oauth2-proxy-reverse, or oauth2-proxy-middleware (default: none).
@@ -47,9 +46,6 @@ type OauthManagement struct {
 	// UserAuthURL is the shared auth host for middleware redirects, as a
 	// hostname with an optional port and no scheme (e.g., auth.example.com).
 	UserAuthURL string
-	// OauthWasmPath is the path, local to Envoy, of the oauthmngr wasm module. Required for
-	// the oauth2-proxy-middleware strategy.
-	OauthWasmPath string
 }
 
 func (f *FlagBuilder) OauthManagementFlags(om *OauthManagement) *FlagBuilder {
@@ -92,7 +88,7 @@ func (f *FlagBuilder) OauthManagementFlags(om *OauthManagement) *FlagBuilder {
 			Destination: &om.OauthLedgerURL,
 			Name:        oauthLedgerURLName,
 			Sources:     envWrapper("OAUTH_LEDGER_URL"),
-			Usage:       "URL of the oauthmngr session ledger (oauth2-proxy-middleware strategy)",
+			Usage:       "URL Envoy uses to reach the oauthmngr session ledger (oauth2-proxy-middleware strategy)",
 		},
 		&cli.StringFlag{
 			Category:    categoryOauth,
@@ -124,14 +120,6 @@ func (f *FlagBuilder) OauthManagementFlags(om *OauthManagement) *FlagBuilder {
 			Name:        oauthUserAuthURLName,
 			Sources:     envWrapper("OAUTH_USER_AUTH_URL"),
 			Usage:       "Shared auth host for middleware redirects (hostname[:port], without scheme)",
-		},
-		&cli.StringFlag{
-			Category:    categoryOauth,
-			Destination: &om.OauthWasmPath,
-			Name:        oauthWasmPathName,
-			Sources:     envWrapper("OAUTH_WASM_PATH"),
-			Usage:       "Path local to Envoy of the oauthmngr wasm module (oauth2-proxy-middleware strategy)",
-			Value:       "/etc/envoy/wasm/oauthmngr.wasm",
 		},
 	}...)
 

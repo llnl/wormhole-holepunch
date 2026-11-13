@@ -30,8 +30,6 @@ services:
       - 9901:9901 # Admin api
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml:ro
-      # oauthmngr proxy-wasm plugin (make build-wasm).
-      - ../../binaries/oauthmngr.wasm:/etc/envoy/wasm/oauthmngr.wasm:ro
     networks:
       dev-network:
         aliases:

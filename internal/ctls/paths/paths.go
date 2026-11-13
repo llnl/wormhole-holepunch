@@ -15,17 +15,9 @@ const (
 	Oauth2ProxyStartPath = Oauth2ProxyPrefix + "/start"
 	// Oauth2ProxyMiddlewareStartPath starts an OAuth flow on the middleware auth host.
 	Oauth2ProxyMiddlewareStartPath = Oauth2ProxyMiddlewarePrefix + "/start"
-	// CallbackPrefix is the cookie hand-off callback handled by the oauthmngr wasm plugin.
+	// CallbackPrefix is the cookie hand-off callback, forwarded by Envoy to the oauthmngr
+	// ledger service.
 	CallbackPrefix = ReservedPrefix + "oauthmngr"
-
-	// CapturePath and RedeemPath are the Ledger endpoints, each accepting a JSON encoded
-	// request via POST. Responses are:
-	//   - 200: JSON encoded response.
-	//   - 400: malformed request.
-	//   - 403: the flow is unavailable or the binding did not match.
-	//   - 5xx: any other failure.
-	CapturePath = "/v1/oauthmngr/capture"
-	RedeemPath  = "/v1/oauthmngr/redeem"
 
 	// APIPrefix namespaces the admin API and shared service health/version endpoints.
 	APIPrefix             = "/api/v1/"

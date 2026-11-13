@@ -6,17 +6,16 @@ import (
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
-	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/ledger"
 )
 
-// LedgerAPI serves the oauthmngr session Ledger to the oauthmngr wasm plugin (via Envoy's
-// ledger cluster), alongside the standard health and version endpoints. Access must be
-// restricted to the Envoy pods (e.g., a NetworkPolicy); the endpoints carry no other
-// authentication. Request bodies (nonces, session cookies) are never logged.
+// LedgerAPI serves the oauthmngr session hand-off callback (forwarded by Envoy's callback
+// route), alongside the standard health and version endpoints. Access must be restricted to
+// the Envoy pods (e.g., a NetworkPolicy); the callback trusts the client IP, host, and scheme
+// headers Envoy sets on that route.
 func (c Configuration) LedgerAPI(
 	ctx context.Context,
 	ll logs.Logger,
-	flowLedger ledger.Ledger,
+	callback http.Handler,
 ) error {
 	ll.Info("starting oauthmngr ledger server on " + c.Address)
 
@@ -25,18 +24,15 @@ func (c Configuration) LedgerAPI(
 		cfg: c,
 	}
 
-	srv := c.initializeAdminServer(d, ledgerHandlers(ll, flowLedger))
+	srv := c.initializeAdminServer(d, ledgerHandlers(callback))
 
 	return runServer(ctx, ll, srv)
 }
 
-func ledgerHandlers(ll logs.Logger, flowLedger ledger.Ledger) *http.ServeMux {
-	ledgerHandler := ledger.NewHandler(flowLedger, ll)
-
+func ledgerHandlers(callback http.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	mux.Handle(paths.CapturePath, ledgerHandler)
-	mux.Handle(paths.RedeemPath, ledgerHandler)
+	mux.Handle(paths.CallbackPrefix, callback)
 
 	mux.HandleFunc(paths.VersionPath, versionHandler)
 	mux.HandleFunc(paths.HealthPath, healthzHandler)

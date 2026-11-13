@@ -165,8 +165,8 @@ func newLedgerFixture(t *testing.T) ledgerFixture {
 	return ledgerFixture{kv: kv, ledger: l, nonce: flow.Nonce, bindingSecret: flow.BindingSecret}
 }
 
-func (f ledgerFixture) capture(clientIP, authority string) (oauthapi.CaptureResponse, error) {
-	return f.ledger.Capture(context.Background(), oauthapi.CaptureRequest{
+func (f ledgerFixture) capture(clientIP, authority string) (CaptureResponse, error) {
+	return f.ledger.Capture(context.Background(), CaptureRequest{
 		Nonce:         f.nonce,
 		ClientIP:      clientIP,
 		Authority:     authority,
@@ -174,8 +174,8 @@ func (f ledgerFixture) capture(clientIP, authority string) (oauthapi.CaptureResp
 	})
 }
 
-func (f ledgerFixture) redeem(clientIP, authority string) (oauthapi.RedeemResponse, error) {
-	return f.ledger.Redeem(context.Background(), oauthapi.RedeemRequest{
+func (f ledgerFixture) redeem(clientIP, authority string) (RedeemResponse, error) {
+	return f.ledger.Redeem(context.Background(), RedeemRequest{
 		Nonce:         f.nonce,
 		ClientIP:      clientIP,
 		Authority:     authority,
@@ -252,7 +252,7 @@ func Test_ledger_fullFlow(t *testing.T) {
 
 	redResp, err := f.redeem("10.0.0.1", "foo.example.com")
 	require.NoError(t, err)
-	assert.Equal(t, oauthapi.RedeemResponse{SessionCookie: "proxy-session", TargetURL: "https://foo.example.com/app"}, redResp)
+	assert.Equal(t, RedeemResponse{SessionCookie: "proxy-session", TargetURL: "https://foo.example.com/app"}, redResp)
 
 	_, ok = f.record(t)
 	assert.False(t, ok, "redeemed flow is removed")
@@ -262,10 +262,10 @@ func Test_ledger_Capture(t *testing.T) {
 	t.Run("malformed requests are rejected without consuming the nonce", func(t *testing.T) {
 		f := newLedgerFixture(t)
 
-		_, err := f.ledger.Capture(context.Background(), oauthapi.CaptureRequest{Nonce: "bad", ClientIP: "10.0.0.1"})
+		_, err := f.ledger.Capture(context.Background(), CaptureRequest{Nonce: "bad", ClientIP: "10.0.0.1"})
 		require.ErrorIs(t, err, ErrInvalidRequest)
 
-		_, err = f.ledger.Capture(context.Background(), oauthapi.CaptureRequest{Nonce: f.nonce, ClientIP: "10.0.0.1", Authority: "auth.example.com"})
+		_, err = f.ledger.Capture(context.Background(), CaptureRequest{Nonce: f.nonce, ClientIP: "10.0.0.1", Authority: "auth.example.com"})
 		require.ErrorIs(t, err, ErrInvalidRequest, "missing session cookie")
 
 		rec, _ := f.record(t)
@@ -399,7 +399,7 @@ func Test_ledger_Redeem(t *testing.T) {
 	t.Run("malformed nonce", func(t *testing.T) {
 		f := captured(t)
 
-		_, err := f.ledger.Redeem(context.Background(), oauthapi.RedeemRequest{Nonce: "bad"})
+		_, err := f.ledger.Redeem(context.Background(), RedeemRequest{Nonce: "bad"})
 		require.ErrorIs(t, err, ErrInvalidRequest)
 	})
 
@@ -450,7 +450,7 @@ func Test_ledger_Redeem(t *testing.T) {
 		for name, secret := range map[string]string{"missing": "", "incorrect": "other-browser"} {
 			t.Run(name, func(t *testing.T) {
 				f := captured(t)
-				_, err := f.ledger.Redeem(context.Background(), oauthapi.RedeemRequest{
+				_, err := f.ledger.Redeem(context.Background(), RedeemRequest{
 					Nonce:         f.nonce,
 					ClientIP:      "10.0.0.1",
 					Authority:     "foo.example.com",
@@ -493,7 +493,7 @@ func Test_ledger_Redeem(t *testing.T) {
 		kv.EXPECT().UpdateWithRevision(gomock.Any(), flowKeyPrefix+nonce, gomock.Any(), uint64(7)).Return(nil)
 		kv.EXPECT().Delete(gomock.Any(), flowKeyPrefix+nonce).Return(errors.New("boom"))
 
-		resp, err := l.Redeem(context.Background(), oauthapi.RedeemRequest{
+		resp, err := l.Redeem(context.Background(), RedeemRequest{
 			Nonce:         nonce,
 			ClientIP:      "10.0.0.1",
 			Authority:     "foo.example.com",

@@ -24,17 +24,16 @@ const mintTimeout = 5 * time.Second
 
 // middlewareManager implements the Validator interface for the middleware strategy. A single
 // oauth2-proxy instance on the auth domain is the redirect target, Holepunch Auth mints the
-// nonce that starts the flow, and the oauthmngr wasm plugin (backed by the Ledger) hands the
+// nonce that starts the flow, and the Ledger's callback (forwarded by Envoy) hands the
 // session across to the target sub-domain as a sub-domain scoped cookie.
 type middlewareManager struct {
 	ll               logs.Logger
 	ledger           *ledger.Store
 	proxy            proxyauth.Resolver
-	cookieMaxAge     int
 	cookieName       string
 	internalProxyURL string
+	ledgerURL        string
 	nonceTTL         int
-	proxyCookieName  string
 	sessionStore     oauthapi.SessionStore
 	userAuthURL      string
 }
@@ -51,6 +50,10 @@ func newMiddlewareManager(
 
 	if oauthArgs.UserAuthURL == "" {
 		return nil, errors.New("user auth URL is required for middleware strategy")
+	}
+
+	if oauthArgs.OauthLedgerURL == "" {
+		return nil, errors.New("ledger URL is required for middleware strategy")
 	}
 
 	if oauthArgs.NonceTTL <= 0 {
@@ -76,11 +79,10 @@ func newMiddlewareManager(
 		ll:               ll,
 		ledger:           flowStore,
 		proxy:            proxyauth.New(client, ll, oauthArgs.InternalProxyURL, oauthArgs.ProxyCookieName),
-		cookieMaxAge:     oauthArgs.CookieMaxAge,
 		cookieName:       oauthArgs.CookieName,
 		internalProxyURL: oauthArgs.InternalProxyURL,
+		ledgerURL:        oauthArgs.OauthLedgerURL,
 		nonceTTL:         oauthArgs.NonceTTL,
-		proxyCookieName:  oauthArgs.ProxyCookieName,
 		sessionStore:     store,
 		userAuthURL:      oauthArgs.UserAuthURL,
 	}, nil
@@ -88,8 +90,9 @@ func newMiddlewareManager(
 
 //
 
-// ExpandSources adds an oauth2-proxy route on the auth domain and a wasm callback route
-// on every virtual host. The auth domain routes are added even when no source targets it.
+// ExpandSources adds an oauth2-proxy route on the auth domain and a callback route, forwarded
+// to the Ledger, on every virtual host. The auth domain routes are added even when no source
+// targets it.
 func (o *middlewareManager) ExpandSources(rawSources []registry.RawSource) []registry.RawSource {
 	expanded := append([]registry.RawSource{}, rawSources...)
 
@@ -104,7 +107,7 @@ func (o *middlewareManager) ExpandSources(rawSources []registry.RawSource) []reg
 		}
 
 		expanded = append(expanded,
-			newRoute(vh, paths.CallbackPrefix, registry.RouteKindOauthCallback, ""),
+			newRoute(vh, paths.CallbackPrefix, registry.RouteKindOauthCallback, o.ledgerURL),
 		)
 	}
 
@@ -171,8 +174,8 @@ func (o *middlewareManager) PrepareAuthRedirect(
 	return AuthRedirect{URL: redirectURL, SetCookie: cookie}, nil
 }
 
-// ValidateCookies extracts the sub-domain scoped cookie issued by the wasm plugin, identified
-// by name, from the request's Cookie header. With the cookie session store the plugin splits
+// ValidateCookies extracts the sub-domain scoped cookie issued by the callback, identified
+// by name, from the request's Cookie header. With the cookie session store the callback splits
 // large sessions into chunks, which are joined. The cookie carries the oauth2-proxy session
 // captured at the auth domain, which is resolved to its access_token through oauth2-proxy.
 // Result.CookieHeader has the cookie (and any chunks) stripped.
@@ -181,17 +184,4 @@ func (o *middlewareManager) ValidateCookies(
 ) (Result, *errs.StatusError) {
 	result, sErr := o.proxy.Resolve(ctx, details, o.cookieName, o.sessionStore)
 	return Result{AccessToken: result.AccessToken, CookieHeader: result.CookieHeader}, sErr
-}
-
-// WasmPluginConfig returns the configuration for the oauthmngr wasm plugin.
-func (o *middlewareManager) WasmPluginConfig() (*PluginConfig, bool) {
-	return &PluginConfig{
-		AuthDomain:          o.userAuthURL,
-		ProxyCookieName:     o.proxyCookieName,
-		SessionCookieName:   o.cookieName,
-		SessionCookieMaxAge: o.cookieMaxAge,
-		ProxySessionStore:   o.sessionStore,
-		LedgerCluster:       oauthapi.LedgerCluster,
-		LedgerTimeoutMs:     oauthapi.LedgerTimeoutMs,
-	}, true
 }

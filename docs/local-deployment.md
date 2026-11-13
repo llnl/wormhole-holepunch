@@ -10,7 +10,7 @@ API servers.
 
 ## Prerequisites and Startup
 
-* Go 1.26 or newer, including support for `GOOS=wasip1` reactor builds.
+* Go 1.26 or newer.
 * A running Podman machine or Docker engine with a Compose provider.
 * Python 3 for the automated flow tests; `curl` and `jq` for manual inspection.
 * Available local ports: 3128, 4180, 5556, 8081, 8082, 9001, 9002, 9901,
@@ -26,11 +26,8 @@ make dev-up
 # make dev-up CONTAINER_RUNTIME=docker
 ```
 
-Both startup targets rebuild the Linux executable for the host's Go architecture
-and the proxy-wasm plugins via `make build-wasm`, then recreate the containers.
-These modules are explicitly made world-readable (`0644`) so the non-root Envoy
-container can load them even when the host uses a restrictive umask or an existing
-build has more restrictive permissions.
+Both startup targets rebuild the Linux executable for the host's Go architecture,
+then recreate the containers.
 
 Allow at least 30 seconds for startup (longer on the first run while images and
 mock-server dependencies download). Containers being started does not mean Envoy
@@ -49,9 +46,9 @@ then exits nonzero on any failed assertion.
 
 | Service                      | Role                                                     |
 |------------------------------|----------------------------------------------------------|
-| Envoy + `oauthmngr.wasm`     | Application proxy and session hand-off callbacks         |
+| Envoy                        | Application proxy                                        |
 | Holepunch Auth               | Session validation and browser-bound flow creation       |
-| Holepunch oauthmngr + NATS   | Shared, single-use flow ledger                           |
+| Holepunch oauthmngr + NATS   | Session hand-off callbacks and single-use flow ledger     |
 | oauth2-proxy + Redis         | OAuth/session validation and session storage             |
 | Dex                          | Local OIDC provider with development users               |
 | Mock API                     | Route registry, token exchange, and `/whoami` upstream   |

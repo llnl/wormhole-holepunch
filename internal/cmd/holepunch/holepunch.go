@@ -16,6 +16,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/envoy"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/ledger"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/proxyauth"
 	"github.com/llnl/wormhole-holepunch/internal/server"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 )
@@ -146,11 +147,27 @@ func startOauthmngrCmd(ctx context.Context, _ *cli.Command) error {
 		return fmt.Errorf("failed to initialize ledger: %w", err)
 	}
 
+	proxySessionStore, err := proxyauth.ParseSessionStore(oauthArgs.ProxySessionStore)
+	if err != nil {
+		return err
+	}
+
+	callback, err := ledger.NewCallbackHandler(flowStore, ledger.CallbackConfig{
+		AuthDomain:          oauthArgs.UserAuthURL,
+		ProxyCookieName:     oauthArgs.ProxyCookieName,
+		ProxySessionStore:   proxySessionStore,
+		SessionCookieName:   oauthArgs.CookieName,
+		SessionCookieMaxAge: oauthArgs.CookieMaxAge,
+	}, ll)
+	if err != nil {
+		return fmt.Errorf("failed to initialize oauth callback: %w", err)
+	}
+
 	ll.Info("starting up holepunch oauthmngr...")
 
 	return server.Configuration{
 		Address: webArgs.ServerAddress,
-	}.LedgerAPI(ctx, ll, flowStore)
+	}.LedgerAPI(ctx, ll, callback)
 }
 
 func startXDSCmd(ctx context.Context, _ *cli.Command) error {
@@ -179,7 +196,7 @@ func startXDSCmd(ctx context.Context, _ *cli.Command) error {
 
 	go manageRegistryRefresh(ctx, routeReg)
 
-	return envoy.RunServer(ctx, ll, routeReg, oauth, *oauthArgs, *tokenSvcArgs, *webArgs, *xdsArgs)
+	return envoy.RunServer(ctx, ll, routeReg, *tokenSvcArgs, *webArgs, *xdsArgs)
 }
 
 //

@@ -42,17 +42,14 @@ func virtualHosts(rawSources []registry.RawSource) []virtualHost {
 
 // newRoute builds a route injected by ExpandSources for the virtual host. The ID is derived
 // from the kind and virtual host so it remains stable across snapshots regardless of the
-// order sources are supplied. Callback routes have no upstream destination.
+// order sources are supplied.
 func newRoute(vh virtualHost, prefix string, kind registry.RouteKind, destination string) registry.RawSource {
 	route := registry.RawSource{
-		ID:     "wormhole-" + kind.String() + "-" + vh.host,
-		Source: urlString(vh.scheme + "://" + vh.host + prefix),
-		Kind:   kind,
-		NoAuth: true,
-	}
-
-	if destination != "" {
-		route.Destination = urlString(destination)
+		ID:          "wormhole-" + kind.String() + "-" + vh.host,
+		Source:      urlString(vh.scheme + "://" + vh.host + prefix),
+		Destination: urlString(destination),
+		Kind:        kind,
+		NoAuth:      true,
 	}
 
 	return route

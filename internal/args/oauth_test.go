@@ -32,7 +32,6 @@ func Test_OauthManagement(t *testing.T) {
 			"--" + oauthProxySessionStore, "redis",
 			"--" + oauthStrategyName, "none",
 			"--" + oauthUserAuthURLName, "https://oauth2-proxy.example.com",
-			"--" + oauthWasmPathName, "/opt/envoy/oauthmngr.wasm",
 		})
 
 		assert.NoError(t, err)
@@ -46,7 +45,6 @@ func Test_OauthManagement(t *testing.T) {
 		assert.Equal(t, "redis", om.ProxySessionStore)
 		assert.Equal(t, "none", om.Strategy)
 		assert.Equal(t, "https://oauth2-proxy.example.com", om.UserAuthURL)
-		assert.Equal(t, "/opt/envoy/oauthmngr.wasm", om.OauthWasmPath)
 	})
 
 	t.Run("DefaultsSessionStoreToCookie", func(t *testing.T) {
@@ -61,6 +59,5 @@ func Test_OauthManagement(t *testing.T) {
 
 		assert.NoError(t, cmd.Run(t.Context(), []string{"test"}))
 		assert.Equal(t, "cookie", defaults.ProxySessionStore)
-		assert.Equal(t, "/etc/envoy/wasm/oauthmngr.wasm", defaults.OauthWasmPath)
 	})
 }

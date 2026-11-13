@@ -158,8 +158,6 @@ func (s *stubValidator) ValidateCookies(context.Context, requests.RequestDetails
 	return s.result, s.err
 }
 
-func (*stubValidator) WasmPluginConfig() (*oauthmngr.PluginConfig, bool) { return nil, false }
-
 const testJumpToken = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl9pZCI6ImM1MjBjMDhjLTAzMjUtNDhjNC04YmQxLTU3YmRlOGM3YzM4MiIsInN1YiI6ImZvbyIsImdyb3VwcyI6WyJwcm9qZWN0MSIsInByb2plY3QyIl0sImR1aWQiOiIxMjM0NTY3ODkiLCJleHAiOjI2MzU2NDk4NTIuNTU2NjgzfQ.placeholder"
 
 // cachedSession establishes a KV store holding a cached session for the access token.

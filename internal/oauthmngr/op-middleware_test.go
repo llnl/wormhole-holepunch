@@ -18,23 +18,28 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
+	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/ledger"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/oauthapi"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 	"github.com/llnl/wormhole-holepunch/test/mocks/mock_streams"
 )
 
-const testAuthDomain = "auth.example.com"
+const (
+	testAuthDomain = "auth.example.com"
+	testLedgerURL  = "http://holepunch-oauthmngr.svc:8083"
+)
 
 func middlewareArgs() args.OauthManagement {
 	return args.OauthManagement{
 		Strategy:         StrategyOauth2ProxyMiddleware,
 		InternalProxyURL: testProxyURL,
 		UserAuthURL:      testAuthDomain,
+		OauthLedgerURL:   testLedgerURL,
 		NonceTTL:         300,
 		CookieMaxAge:     43200,
 		CookieName:       "_wormhole_session",
 		ProxyCookieName:  "_oauth2_proxy",
-		// redis rather than the default, verifying it reaches the plugin configuration.
+		// redis rather than the default, verifying it reaches the session resolver.
 		ProxySessionStore: "redis",
 	}
 }
@@ -54,6 +59,7 @@ func Test_newMiddlewareManager(t *testing.T) {
 	tests := map[string]func(*args.OauthManagement){
 		"requires internal proxy URL":   func(a *args.OauthManagement) { a.InternalProxyURL = "" },
 		"requires user auth URL":        func(a *args.OauthManagement) { a.UserAuthURL = "" },
+		"requires ledger URL":           func(a *args.OauthManagement) { a.OauthLedgerURL = "" },
 		"requires positive nonce TTL":   func(a *args.OauthManagement) { a.NonceTTL = 0 },
 		"rejects unknown session store": func(a *args.OauthManagement) { a.ProxySessionStore = "memcached" },
 	}
@@ -112,7 +118,7 @@ func Test_middlewareManager_ExpandSources(t *testing.T) {
 			"oauth2-proxy https://auth.example.com/oauth2")
 	})
 
-	t.Run("only oauth2-proxy routes forward upstream", func(t *testing.T) {
+	t.Run("callback routes forward to the ledger", func(t *testing.T) {
 		expanded := m.ExpandSources([]registry.RawSource{source(t, "a", "https://foo.example.com/app")})
 
 		for _, s := range expanded {
@@ -120,8 +126,8 @@ func Test_middlewareManager_ExpandSources(t *testing.T) {
 			case registry.RouteKindOauth2Proxy:
 				assert.Equal(t, testProxyURL, s.Destination.Raw)
 			case registry.RouteKindOauthCallback:
-				assert.Nil(t, s.Destination.URL, s.ID)
-			case registry.RouteKindUpstream:
+				assert.Equal(t, testLedgerURL, s.Destination.Raw, s.ID)
+			case registry.RouteKindUpstream, registry.RouteKindReserved:
 			}
 		}
 	})
@@ -199,14 +205,14 @@ func Test_middlewareManager_PrepareAuthRedirect(t *testing.T) {
 		assert.True(t, redirect.SetCookie.HttpOnly)
 		assert.True(t, redirect.SetCookie.Secure)
 		assert.Equal(t, http.SameSiteLaxMode, redirect.SetCookie.SameSite)
-		captured, err := m.ledger.Capture(context.Background(), oauthapi.CaptureRequest{
+		captured, err := m.ledger.Capture(context.Background(), ledger.CaptureRequest{
 			Nonce: nonce, ClientIP: details.ClientIP, Authority: testAuthDomain, SessionCookie: "proxy-session",
 		})
 		require.NoError(t, err)
 		assert.Equal(t, details.Host, captured.TargetSubdomain)
 		assert.Equal(t, "https://foo.example.com"+paths.CallbackPrefix+"?nonce="+nonce, captured.CallbackURL)
 
-		redeemed, err := m.ledger.Redeem(context.Background(), oauthapi.RedeemRequest{
+		redeemed, err := m.ledger.Redeem(context.Background(), ledger.RedeemRequest{
 			Nonce: nonce, ClientIP: details.ClientIP, Authority: details.Host, BindingSecret: redirect.SetCookie.Value,
 		})
 		require.NoError(t, err)
@@ -280,21 +286,4 @@ func Test_middlewareManager_ValidateCookies(t *testing.T) {
 		require.NotNil(t, sErr)
 		assert.Equal(t, int32(codes.Unauthenticated), sErr.Code())
 	})
-}
-
-func Test_middlewareManager_WasmPluginConfig(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
-	cfg, ok := newTestMiddlewareManager(t, mockKVStore(ctrl)).WasmPluginConfig()
-
-	require.True(t, ok)
-	assert.Equal(t, &PluginConfig{
-		AuthDomain:          testAuthDomain,
-		ProxyCookieName:     "_oauth2_proxy",
-		SessionCookieName:   "_wormhole_session",
-		SessionCookieMaxAge: 43200,
-		ProxySessionStore:   oauthapi.SessionStoreRedis,
-		LedgerCluster:       "oauthmngr_ledger",
-		LedgerTimeoutMs:     2000,
-	}, cfg)
 }

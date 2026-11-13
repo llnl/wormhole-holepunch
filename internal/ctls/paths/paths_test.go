@@ -15,8 +15,6 @@ func TestPaths(t *testing.T) {
 		{"oauth2 proxy start", Oauth2ProxyStartPath, "/-/wormhole/oauth2/start"},
 		{"middleware oauth2 proxy start", Oauth2ProxyMiddlewareStartPath, "/oauth2/start"},
 		{"callback", CallbackPrefix, "/-/wormhole/oauthmngr"},
-		{"ledger capture", CapturePath, "/v1/oauthmngr/capture"},
-		{"ledger redeem", RedeemPath, "/v1/oauthmngr/redeem"},
 		{"admin API prefix", APIPrefix, "/api/v1/"},
 		{"controls", ControlsPath, "/api/v1/state/ctls"},
 		{"routes webhook", RoutesWebhookPath, "/api/v1/webhook/routes"},

@@ -125,7 +125,7 @@ func oauthmngrCmd() *cli.Command {
 
 	return &cli.Command{
 		Name:   "oauthmngr",
-		Usage:  "OAuth session ledger for the oauthmngr wasm plugin (oauth2-proxy-middleware strategy)",
+		Usage:  "OAuth session ledger and hand-off callback (oauth2-proxy-middleware strategy)",
 		Action: startOauthmngrCmd,
 		Flags:  f.Flags,
 	}

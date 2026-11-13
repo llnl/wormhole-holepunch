@@ -18,7 +18,7 @@ flow and access/refresh-token lifecycle.
 **Reverse proxy:** With oauth2-proxy's `reverse_proxy` mode and an identity
 provider that supports wildcard redirects, each application host can complete
 OAuth directly. oauth2-proxy issues the host-scoped session cookie; no
-hand-off plugin or ledger is needed.
+hand-off callback or ledger is needed.
 
 **Middleware:** For providers that require one redirect URI, use a shared auth
 host and hand the oauth2-proxy session back to the requesting application host
@@ -44,21 +44,21 @@ through a short-lived, one-time flow.
    cookie after redemption or a definitive rejection; transient ledger/network
    failures preserve it for retry until its TTL.
 
-The callback runs inside Envoy and never reaches an application upstream
-or Holepunch Auth.
+Envoy forwards the callback, with authentication disabled, to the oauthmngr
+ledger service, which serves both steps. It never reaches an application
+upstream or Holepunch Auth.
 
 ## Components and Routing
 
-| Component      | Responsibility                                        |
-|----------------|-------------------------------------------------------|
-| Holepunch Auth | Validates application sessions and starts OAuth flow  |
-| oauth2-proxy   | Performs OAuth and owns the session lifecycle         |
-| Envoy callback | Transfers the session and issues the host-only cookie |
-| Shared ledger  | Tracks short-lived flows across Envoy replicas        |
+| Component           | Responsibility                                                |
+|---------------------|---------------------------------------------------------------|
+| Holepunch Auth      | Validates application sessions and starts OAuth flow          |
+| oauth2-proxy        | Performs OAuth and owns the session lifecycle                 |
+| Holepunch oauthmngr | Serves the callback: transfers the session, issues the cookie |
+| Shared ledger (KV)  | Tracks short-lived flows across oauthmngr replicas            |
 
 The shared path constants live in [`internal/ctls/paths`](../internal/ctls/paths/paths.go),
-including the reserved prefix, OAuth endpoints, ledger endpoints, and admin API paths.
-The package has no dependencies so the control plane and proxy-wasm plugin can both use it.
+including the reserved prefix, OAuth endpoints, and admin API paths.
 
 OAuth endpoints bypass normal authentication only where required. The
 middleware strategy uses oauth2-proxy's standard `/oauth2` path on its dedicated
@@ -68,7 +68,7 @@ auth host; the reverse strategy uses the reserved path on each application host:
 |--------------------------------------|-------------|------------------------------|
 | `/oauth2/*`                           | Middleware  | Forward to oauth2-proxy      |
 | `/-/wormhole/oauth2/*`               | Reverse     | Forward to oauth2-proxy      |
-| `/-/wormhole/oauthmngr`              | Middleware  | Handle the hand-off in Envoy |
+| `/-/wormhole/oauthmngr`              | Middleware  | Forward to oauthmngr         |
 
 OAuth expansion does not add a catch-all route for `/-/wormhole/*`; reserving
 the entire prefix is outside this package's responsibilities.
@@ -105,22 +105,21 @@ confirmation of the configuration applied by Envoy.
 * Do not place session cookies or browser secrets in URLs or logs; mark
   redirects and callback responses carrying flow state `Cache-Control: no-store`.
 * Derive the client IP consistently from Envoy's trusted downstream address
-  configuration.
+  configuration. On the callback route Envoy sets `x-wormhole-client-ip` (the
+  downstream address ext_authz also sees) and the route's `x-wormhole-host` and
+  `x-wormhole-scheme`, overwriting any client-supplied values. The oauthmngr
+  service trusts these headers, so it must only be reachable from Envoy (e.g.,
+  a NetworkPolicy).
 
 ## Deployment Requirements
 
-For the middleware strategy, set `HOLEPUNCH_OAUTH_LEDGER_URL` (or
-`--oauth-ledger-url`) to an HTTP or HTTPS origin, and ensure the Envoy process
-can access the WASM module at `HOLEPUNCH_OAUTH_WASM_PATH` (or
-`--oauth-wasm-path`, default `/etc/envoy/wasm/oauthmngr.wasm`):
-
-* `http://holepunch-oauthmngr:8083` preserves plaintext HTTP for local development
-  or deployments where a trusted service mesh manages transport encryption.
-* `https://ledger.example.com` enables Envoy upstream TLS with certificate-chain
-  validation and DNS subject-alternative-name verification. DNS hosts are sent
-  as SNI; IP-literal URLs are checked against IP subject alternative names.
-* HTTPS uses the **Envoy process's system root certificates**. Custom CA bundles
-  and disabling certificate verification are not supported.
+For the middleware strategy, run `holepunch oauthmngr` and set
+`HOLEPUNCH_OAUTH_LEDGER_URL` (or `--oauth-ledger-url`) to the URL Envoy uses to
+reach it (e.g., `http://holepunch-oauthmngr:8083`). Like the oauth2-proxy
+internal URL, it becomes the destination of the generated callback routes and
+is reached over plain HTTP; rely on the cluster network or a service mesh for
+transport encryption. Holepunch Auth, xDS, and admin require the same value so
+their expanded routes agree.
 
 Configure oauth2-proxy with:
 
@@ -139,6 +138,6 @@ redirect works after login at the identity provider. The `/-/wormhole/`
 prefix is reserved and must be rejected in user routes.
 
 OAuth flow state must be stored in a shared, atomic store so capture and
-redemption remain single-use across all Envoy replicas. In this deployment,
-the Ledger service exposes that store to Envoy’s WASM plugin; per-process
-state or state carried only in URLs is insufficient
+redemption remain single-use across all oauthmngr replicas. In this deployment,
+the oauthmngr service serves the callback from the shared NATS KV store;
+per-process state or state carried only in URLs is insufficient.

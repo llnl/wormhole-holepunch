@@ -1,5 +1,4 @@
 // Package cookies creates validated HTTP cookies for native services.
-// The OAuth Wasm plugin manages its own cookie headers without importing this package.
 package cookies
 
 import (

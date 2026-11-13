@@ -32,8 +32,8 @@ type RequestDetails struct {
 	// additional validation preformed.
 	Path string
 	// ClientIP is the downstream remote address determined by Envoy's HCM
-	// (attributes.source.address). The oauthmngr wasm plugin
-	// derives the client IP from the same source, so nonce bindings remain consistent.
+	// (attributes.source.address). Envoy forwards the same address to the oauthmngr
+	// ledger on the callback route, so nonce bindings remain consistent.
 	ClientIP string
 }
 

@@ -34,6 +34,7 @@ func Test_adminCmd_OAuthFlags(t *testing.T) {
 				assert.Equal(t, "http://oauth2-proxy:4180", oauthArgs.InternalProxyURL)
 				assert.Equal(t, "auth.example.com", oauthArgs.UserAuthURL)
 				assert.Equal(t, 300, oauthArgs.NonceTTL)
+				assert.Equal(t, "http://oauthmngr:8083", oauthArgs.OauthLedgerURL)
 
 				validator, err := oauthmngr.Initialize(nil, nil, logs.InitializeDiscard(), *oauthArgs)
 				require.NoError(t, err)
@@ -64,6 +65,7 @@ func Test_adminCmd_OAuthFlags(t *testing.T) {
 				"--token-host", "http://tokens:8080",
 				"--oauth-internal-proxy", "http://oauth2-proxy:4180",
 				"--oauth-user-auth-url", "auth.example.com", "--oauth-nonce-ttl", "300",
+				"--oauth-ledger-url", "http://oauthmngr:8083",
 			}))
 			assert.True(t, called)
 		})

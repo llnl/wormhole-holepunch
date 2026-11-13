@@ -3,9 +3,9 @@
 //
 //   - none (default): disables OAuth2 flows.
 //   - oauth2-proxy-reverse: routes authentication through oauth2-proxy on each sub-domain
-//     using reverse_proxy=true and wildcard DNS, without a ledger or wasm plugin.
+//     using reverse_proxy=true and wildcard DNS, without a ledger.
 //   - oauth2-proxy-middleware: uses a single auth domain for providers without wildcard
-//     redirects; a request-bound nonce, session ledger, and wasm plugin transfer the
+//     redirects; a request-bound nonce and the session ledger's callback transfer the
 //     session to a host-only cookie on the target sub-domain.
 //
 // ExpandSources adds OAuth routes with authentication bypasses rendered by xDS;
@@ -23,7 +23,6 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/requests"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
-	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/oauthapi"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 )
 
@@ -40,9 +39,6 @@ type Result struct {
 	// place of the original Cookie header so that cookie is never exposed upstream.
 	CookieHeader string
 }
-
-// PluginConfig is delivered through xDS as the oauthmngr wasm PluginConfig.configuration.
-type PluginConfig = oauthapi.PluginConfig
 
 // AuthRedirect describes the redirect that starts an OAuth flow and any response cookie
 // needed to bind that flow to the initiating browser.
@@ -74,10 +70,6 @@ type Validator interface {
 		ctx context.Context,
 		details requests.RequestDetails,
 	) (Result, *errs.StatusError)
-
-	// WasmPluginConfig returns the oauthmngr wasm filter configuration for xDS.
-	// A false result requires omitting the filter from the HCM chain.
-	WasmPluginConfig() (*PluginConfig, bool)
 }
 
 // Disabled returns a none-strategy Validator for components that do not participate in OAuth flows.
@@ -123,9 +115,10 @@ func Initialize(
 		}
 
 		ll.Infof(
-			"OAuth middleware initialized (internal=%s, user_auth=%s, cookie_max_age=%ds)",
+			"OAuth middleware initialized (internal=%s, user_auth=%s, ledger=%s, cookie_max_age=%ds)",
 			oauthArgs.InternalProxyURL,
 			oauthArgs.UserAuthURL,
+			oauthArgs.OauthLedgerURL,
 			oauthArgs.CookieMaxAge,
 		)
 

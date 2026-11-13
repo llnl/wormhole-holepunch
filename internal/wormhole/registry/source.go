@@ -55,8 +55,8 @@ const (
 	RouteKindUpstream RouteKind = iota
 	// RouteKindOauth2Proxy forwards to the oauth2-proxy cluster.
 	RouteKindOauth2Proxy
-	// RouteKindOauthCallback is answered by the oauthmngr wasm plugin, falling back to a
-	// direct_response 404.
+	// RouteKindOauthCallback forwards to the oauthmngr ledger cluster, with the client
+	// address and the route's host and scheme bound into the request.
 	RouteKindOauthCallback
 	// RouteKindReserved is a direct_response 404 reserving the /-/wormhole/ prefix on every
 	// virtual host.

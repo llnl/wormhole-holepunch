@@ -45,8 +45,3 @@ func (*noneManager) ValidateCookies(
 ) (Result, *errs.StatusError) {
 	return Result{CookieHeader: details.Headers[keys.CookieHeader]}, errs.SimpleAuthErr(errOAuthNotConfigured)
 }
-
-// WasmPluginConfig returns false, no plugin is required.
-func (*noneManager) WasmPluginConfig() (*PluginConfig, bool) {
-	return nil, false
-}

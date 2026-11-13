@@ -143,11 +143,11 @@ func Test_newRoute(t *testing.T) {
 		assert.True(t, route.NoAuth)
 	})
 
-	t.Run("local reply route has no destination", func(t *testing.T) {
-		route := newRoute(vh, paths.CallbackPrefix, registry.RouteKindOauthCallback, "")
+	t.Run("callback route", func(t *testing.T) {
+		route := newRoute(vh, paths.CallbackPrefix, registry.RouteKindOauthCallback, "http://ledger.svc:8083")
 
 		assert.Equal(t, "https://foo.example.com/-/wormhole/oauthmngr", route.Source.Raw)
-		assert.Nil(t, route.Destination.URL)
+		assert.Equal(t, "http://ledger.svc:8083", route.Destination.Raw)
 		assert.Equal(t, registry.RouteKindOauthCallback, route.Kind)
 		assert.True(t, route.NoAuth)
 	})

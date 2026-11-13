@@ -141,10 +141,3 @@ func Test_reverseManager_ValidateCookies(t *testing.T) {
 		assert.Equal(t, int32(codes.Unauthenticated), sErr.Code())
 	})
 }
-
-func Test_reverseManager_WasmPluginConfig(t *testing.T) {
-	cfg, ok := newTestReverseManager(t).WasmPluginConfig()
-
-	assert.False(t, ok)
-	assert.Nil(t, cfg)
-}

@@ -35,7 +35,7 @@ func Test_data_ctlsReportHandler_routeKinds(t *testing.T) {
 			ll := logs.InitializeDiscard()
 			validator, err := oauthmngr.Initialize(nil, nil, ll, args.OauthManagement{
 				Strategy: strategy, InternalProxyURL: "http://oauth2-proxy:4180",
-				UserAuthURL: "auth.example.com", NonceTTL: 300,
+				UserAuthURL: "auth.example.com", NonceTTL: 300, OauthLedgerURL: "http://oauthmngr:8083",
 			})
 			require.NoError(t, err)
 

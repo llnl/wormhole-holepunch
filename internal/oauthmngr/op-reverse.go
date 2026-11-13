@@ -91,8 +91,3 @@ func (r *reverseManager) ValidateCookies(
 	result, sErr := r.proxy.Resolve(ctx, details, r.proxyCookieName, r.proxySessionStore)
 	return Result{AccessToken: result.AccessToken, CookieHeader: result.CookieHeader}, sErr
 }
-
-// WasmPluginConfig returns false, no plugin is required for the reverse strategy.
-func (r *reverseManager) WasmPluginConfig() (*PluginConfig, bool) {
-	return nil, false
-}

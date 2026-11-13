@@ -49,9 +49,8 @@ import (
 //
 //	  - Filters: HTTP middleware inside the HCM, executed in order per request:
 //	    	1. header_mutation  strips/rewrites headers before auth sees them.
-//	    	2. oauthmngr wasm   (oauth2-proxy-middleware only) answers OAuth callbacks, see oauth.go.
-//	    	3. ext_authz        calls the external gRPC auth service; blocks or allows.
-//	    	4. router           must be last; forwards the request to the matched cluster.
+//	    	2. ext_authz        calls the external gRPC auth service; blocks or allows.
+//	    	3. router           must be last; forwards the request to the matched cluster.
 //	    Per-route TypedPerFilterConfig overrides allow each route to bind its own
 //	    metadata (route ID, source host/scheme) into the auth check without relying
 //	    on client-supplied headers.
@@ -114,10 +113,6 @@ func (s *xdsServer) makeClusters(ctls map[string]registry.ProxyControls) []types
 				},
 			)
 		}
-	}
-
-	if s.oauthPlugin != nil {
-		clusters = append(clusters, s.oauthPlugin.ledgerCluster(durationpb.New(s.xdsArgs.ConnectTimeout)))
 	}
 
 	return clusters
@@ -217,8 +212,7 @@ func (s *xdsServer) makeRoutes(
 		VirtualHosts: virtualHosts,
 		// Domains are always generated from the source hostname, so the port of the host or
 		// authority header is never significant when matching them. Unlike
-		// strip_any_host_port, the header itself (relied upon by ext_authz and the oauthmngr
-		// plugin) is left unmodified.
+		// strip_any_host_port, the header itself (relied upon by ext_authz) is left unmodified.
 		IgnorePortInHostMatching: true,
 	}
 }
@@ -257,23 +251,26 @@ func (s *xdsServer) singleRoute(
 		}
 	}
 
-	perFilter := map[string]*anypb.Any{
-		headerMutationFilter: s.requestHeaderFilterCfg(ctl.RequestHeaders),
-		authzFilter:          routeAuthzFilter(ctl),
-	}
-
-	s.wasmPerRoute(perFilter, ctl.Kind)
-
-	return &route.Route{
+	r := &route.Route{
 		Match: &route.RouteMatch{
 			PathSpecifier: &route.RouteMatch_Prefix{
 				Prefix: prefix,
 			},
 		},
-		Action:               ra,
-		Metadata:             routeMetadata(ctl),
-		TypedPerFilterConfig: perFilter,
+		Action:   ra,
+		Metadata: routeMetadata(ctl),
+		TypedPerFilterConfig: map[string]*anypb.Any{
+			headerMutationFilter: s.requestHeaderFilterCfg(ctl.RequestHeaders),
+			authzFilter:          routeAuthzFilter(ctl),
+		},
 	}
+
+	// Applied by the router, after header_mutation has stripped any client supplied values.
+	if ctl.Kind == registry.RouteKindOauthCallback {
+		r.RequestHeadersToAdd = callbackRequestHeaders(ctl)
+	}
+
+	return r
 }
 
 // routeFeatures lists the non-standard behaviors enabled for a route. An empty result
@@ -391,8 +388,8 @@ func (s *xdsServer) makeHTTPListener(listenerName, routeName string) *listener.L
 		MergeSlashes:                 true,
 		PathWithEscapedSlashesAction: hcm.HttpConnectionManager_UNESCAPE_AND_REDIRECT,
 
-		// Client address as seen by ext_authz (attributes.source.address) and the oauthmngr
-		// plugin (source.address), which bind OAuth nonces to it.
+		// Client address as seen by ext_authz (attributes.source.address) and forwarded to
+		// the oauthmngr ledger on the callback route, which bind OAuth nonces to it.
 		UseRemoteAddress: &wrapperspb.BoolValue{Value: s.xdsArgs.UseRemoteAddress},
 
 		RouteSpecifier: &hcm.HttpConnectionManager_Rds{
@@ -443,31 +440,24 @@ func (s *xdsServer) makeHTTPListener(listenerName, routeName string) *listener.L
 	}
 }
 
-// httpFilters establishes the ordered HCM filter chain. The oauthmngr wasm plugin, when the
-// strategy requires one, sits ahead of ext_authz so it can answer the OAuth callback before
-// authorization runs (ext_authz is also disabled on the callback route).
+// httpFilters establishes the ordered HCM filter chain.
 func (s *xdsServer) httpFilters(headerMutationCfg, routerCfg *anypb.Any) []*hcm.HttpFilter {
-	filters := []*hcm.HttpFilter{{
-		Name:       headerMutationFilter,
-		ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: headerMutationCfg},
-	}}
-
-	if s.oauthPlugin != nil {
-		filters = append(filters, s.oauthPlugin.wasmHTTPFilter())
-	}
-
-	return append(filters,
-		&hcm.HttpFilter{
+	return []*hcm.HttpFilter{
+		{
+			Name:       headerMutationFilter,
+			ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: headerMutationCfg},
+		},
+		{
 			// Required ext_authz filter
 			Name:       authzFilter,
 			ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: s.authzFilterCfg()},
 		},
-		&hcm.HttpFilter{
+		{
 			// Router filter - last in the chain
 			Name:       httpRouteFilter,
 			ConfigType: &hcm.HttpFilter_TypedConfig{TypedConfig: routerCfg},
 		},
-	)
+	}
 }
 
 // configSource defines the xDS configuration source, specifying how Envoy fetches

@@ -46,3 +46,31 @@ type MintResult struct {
 	Nonce         string
 	BindingSecret string
 }
+
+// CaptureRequest is made by the callback at the auth domain.
+type CaptureRequest struct {
+	Nonce         string
+	ClientIP      string
+	Authority     string
+	SessionCookie string
+}
+
+// CaptureResponse directs the browser to the target sub-domain callback.
+type CaptureResponse struct {
+	TargetSubdomain string
+	CallbackURL     string
+}
+
+// RedeemRequest is made by the callback at the target sub-domain.
+type RedeemRequest struct {
+	Nonce         string
+	ClientIP      string
+	Authority     string
+	BindingSecret string
+}
+
+// RedeemResponse provides the captured session cookie and the user's intended destination.
+type RedeemResponse struct {
+	SessionCookie string
+	TargetURL     string
+}

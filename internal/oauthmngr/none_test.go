@@ -52,10 +52,3 @@ func Test_noneManager_ValidateCookies(t *testing.T) {
 	assert.Empty(t, result.AccessToken)
 	assert.Equal(t, "foo=bar", result.CookieHeader)
 }
-
-func Test_noneManager_WasmPluginConfig(t *testing.T) {
-	cfg, ok := newNoneManager().WasmPluginConfig()
-
-	assert.False(t, ok)
-	assert.Nil(t, cfg)
-}

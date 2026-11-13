@@ -34,13 +34,13 @@ var (
 type Ledger interface {
 	// Capture atomically consumes the nonce at the auth domain, checks the client binding,
 	// and stores the oauth2-proxy session cookie against it.
-	Capture(ctx context.Context, req oauthapi.CaptureRequest) (oauthapi.CaptureResponse, error)
+	Capture(ctx context.Context, req CaptureRequest) (CaptureResponse, error)
 	// Redeem atomically consumes the captured session at the target sub-domain, checks the
 	// client and host binding, and returns the session cookie and target URL.
-	Redeem(ctx context.Context, req oauthapi.RedeemRequest) (oauthapi.RedeemResponse, error)
+	Redeem(ctx context.Context, req RedeemRequest) (RedeemResponse, error)
 }
 
-// Store mints flows for Holepunch Auth and implements the Ledger consumed by the wasm plugin.
+// Store mints flows for Holepunch Auth and implements the Ledger consumed by the callback.
 type Store struct {
 	authDomain string
 	kvStore    streams.KVStore
@@ -73,10 +73,10 @@ func New(
 
 //
 
-func (l *Store) Capture(ctx context.Context, req oauthapi.CaptureRequest) (oauthapi.CaptureResponse, error) {
+func (l *Store) Capture(ctx context.Context, req CaptureRequest) (CaptureResponse, error) {
 	if !oauthapi.ValidNonce(req.Nonce) || req.SessionCookie == "" {
 		l.ll.Warnf("ledger capture rejected: malformed request (client_ip=%s)", req.ClientIP)
-		return oauthapi.CaptureResponse{}, ErrInvalidRequest
+		return CaptureResponse{}, ErrInvalidRequest
 	}
 
 	rec, err := l.transition(ctx, "capture", req.Nonce, flowPending, func(rec *flowRecord) error {
@@ -90,7 +90,7 @@ func (l *Store) Capture(ctx context.Context, req oauthapi.CaptureRequest) (oauth
 		return nil
 	})
 	if err != nil {
-		return oauthapi.CaptureResponse{}, err
+		return CaptureResponse{}, err
 	}
 
 	scheme := rec.TargetScheme
@@ -98,7 +98,7 @@ func (l *Store) Capture(ctx context.Context, req oauthapi.CaptureRequest) (oauth
 		scheme = "https"
 	}
 
-	return oauthapi.CaptureResponse{
+	return CaptureResponse{
 		TargetSubdomain: rec.TargetSubdomain,
 		CallbackURL: fmt.Sprintf(
 			"%s://%s%s?nonce=%s",
@@ -110,10 +110,10 @@ func (l *Store) Capture(ctx context.Context, req oauthapi.CaptureRequest) (oauth
 	}, nil
 }
 
-func (l *Store) Redeem(ctx context.Context, req oauthapi.RedeemRequest) (oauthapi.RedeemResponse, error) {
+func (l *Store) Redeem(ctx context.Context, req RedeemRequest) (RedeemResponse, error) {
 	if !oauthapi.ValidNonce(req.Nonce) {
 		l.ll.Warnf("ledger redeem rejected: malformed request (client_ip=%s)", req.ClientIP)
-		return oauthapi.RedeemResponse{}, ErrInvalidRequest
+		return RedeemResponse{}, ErrInvalidRequest
 	}
 
 	rec, err := l.transition(ctx, "redeem", req.Nonce, flowCaptured, func(rec *flowRecord) error {
@@ -134,7 +134,7 @@ func (l *Store) Redeem(ctx context.Context, req oauthapi.RedeemRequest) (oauthap
 		return nil
 	})
 	if err != nil {
-		return oauthapi.RedeemResponse{}, err
+		return RedeemResponse{}, err
 	}
 
 	// The CAS above already enforces one-time-use, so a failure here is just untidy
@@ -143,7 +143,7 @@ func (l *Store) Redeem(ctx context.Context, req oauthapi.RedeemRequest) (oauthap
 		l.ll.Warnf("failed to delete redeemed oauth flow: %s", err)
 	}
 
-	return oauthapi.RedeemResponse{
+	return RedeemResponse{
 		SessionCookie: rec.SessionCookie,
 		TargetURL:     rec.TargetURL,
 	}, nil
