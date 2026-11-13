@@ -223,6 +223,7 @@ func (h *callbackHandler) sessionCookies(value string, req callbackRequest) ([]*
 		}
 
 		issued[p[0]] = struct{}{}
+
 		out = append(out, c)
 	}
 
