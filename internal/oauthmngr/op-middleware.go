@@ -27,16 +27,16 @@ const mintTimeout = 5 * time.Second
 // nonce that starts the flow, and the Ledger's callback (forwarded by Envoy) hands the
 // session across to the target sub-domain as a sub-domain scoped cookie.
 type middlewareManager struct {
-	ll                   logs.Logger
-	ledger               *ledger.Store
-	proxy                proxyauth.Resolver
-	cookieName           string
-	internalProxyURL     string
-	ledgerURL            string
-	nonceTTL             int
-	disableClientIPCheck bool
-	sessionStore         oauthapi.SessionStore
-	userAuthURL          string
+	ll                  logs.Logger
+	ledger              *ledger.Store
+	proxy               proxyauth.Resolver
+	cookieName          string
+	internalProxyURL    string
+	ledgerURL           string
+	nonceTTL            int
+	enableClientIPCheck bool
+	sessionStore        oauthapi.SessionStore
+	userAuthURL         string
 }
 
 func newMiddlewareManager(
@@ -71,23 +71,23 @@ func newMiddlewareManager(
 		ll,
 		oauthArgs.UserAuthURL,
 		time.Duration(oauthArgs.NonceTTL)*time.Second,
-		oauthArgs.DisableClientIPCheck,
+		oauthArgs.EnableClientIPCheck,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &middlewareManager{
-		ll:                   ll,
-		ledger:               flowStore,
-		proxy:                proxyauth.New(client, ll, oauthArgs.InternalProxyURL, oauthArgs.ProxyCookieName),
-		cookieName:           oauthArgs.CookieName,
-		internalProxyURL:     oauthArgs.InternalProxyURL,
-		ledgerURL:            oauthArgs.OauthLedgerURL,
-		nonceTTL:             oauthArgs.NonceTTL,
-		disableClientIPCheck: oauthArgs.DisableClientIPCheck,
-		sessionStore:         store,
-		userAuthURL:          oauthArgs.UserAuthURL,
+		ll:                  ll,
+		ledger:              flowStore,
+		proxy:               proxyauth.New(client, ll, oauthArgs.InternalProxyURL, oauthArgs.ProxyCookieName),
+		cookieName:          oauthArgs.CookieName,
+		internalProxyURL:    oauthArgs.InternalProxyURL,
+		ledgerURL:           oauthArgs.OauthLedgerURL,
+		nonceTTL:            oauthArgs.NonceTTL,
+		enableClientIPCheck: oauthArgs.EnableClientIPCheck,
+		sessionStore:        store,
+		userAuthURL:         oauthArgs.UserAuthURL,
 	}, nil
 }
 
@@ -123,7 +123,7 @@ func (o *middlewareManager) ExpandSources(rawSources []registry.RawSource) []reg
 func (o *middlewareManager) PrepareAuthRedirect(
 	proposedRedirect string, details requests.RequestDetails,
 ) (AuthRedirect, *errs.StatusError) {
-	if details.ClientIP == "" && !o.disableClientIPCheck {
+	if details.ClientIP == "" && o.enableClientIPCheck {
 		return AuthRedirect{}, errs.NewInternalErr(
 			errors.New("client IP unavailable for nonce binding"),
 			"Failed to prepare authentication",

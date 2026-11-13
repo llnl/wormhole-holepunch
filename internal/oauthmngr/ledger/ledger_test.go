@@ -148,14 +148,14 @@ type ledgerFixture struct {
 
 // newLedgerFixture mints a pending flow for 10.0.0.1 targeting foo.example.com.
 func newLedgerFixture(t *testing.T) ledgerFixture {
-	return newLedgerFixtureWithIPCheck(t, false)
+	return newLedgerFixtureWithIPCheck(t, true)
 }
 
-func newLedgerFixtureWithIPCheck(t *testing.T, disableClientIPCheck bool) ledgerFixture {
+func newLedgerFixtureWithIPCheck(t *testing.T, enableClientIPCheck bool) ledgerFixture {
 	t.Helper()
 
 	kv := newStatefulMockKVStore(gomock.NewController(t))
-	l, err := New(kv, ll, "auth.example.com", 300*time.Second, disableClientIPCheck)
+	l, err := New(kv, ll, "auth.example.com", 300*time.Second, enableClientIPCheck)
 	require.NoError(t, err)
 
 	flow, err := l.Mint(context.Background(), MintRequest{
@@ -262,9 +262,9 @@ func Test_ledger_fullFlow(t *testing.T) {
 	assert.False(t, ok, "redeemed flow is removed")
 }
 
-func Test_Store_DisableClientIPCheck(t *testing.T) {
+func Test_Store_ClientIPCheckDisabled(t *testing.T) {
 	t.Run("allows client IP to change between callbacks", func(t *testing.T) {
-		f := newLedgerFixtureWithIPCheck(t, true)
+		f := newLedgerFixtureWithIPCheck(t, false)
 
 		_, err := f.capture("10.0.0.2", "auth.example.com")
 		require.NoError(t, err)
@@ -275,14 +275,14 @@ func Test_Store_DisableClientIPCheck(t *testing.T) {
 	})
 
 	t.Run("still checks authority", func(t *testing.T) {
-		f := newLedgerFixtureWithIPCheck(t, true)
+		f := newLedgerFixtureWithIPCheck(t, false)
 
 		_, err := f.capture("10.0.0.2", "other.example.com")
 		require.ErrorIs(t, err, ErrBindingMismatch)
 	})
 
 	t.Run("still checks browser proof", func(t *testing.T) {
-		f := newLedgerFixtureWithIPCheck(t, true)
+		f := newLedgerFixtureWithIPCheck(t, false)
 		_, err := f.capture("10.0.0.2", "auth.example.com")
 		require.NoError(t, err)
 

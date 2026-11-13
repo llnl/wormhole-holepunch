@@ -103,13 +103,14 @@ confirmation of the configuration applied by Envoy.
 
 * Use cryptographically random nonces with at least 128 bits of entropy and
   a short TTL (five minutes by default).
-* Bind each flow to its client IP, target host, and a separate 256-bit browser
+* Bind each flow to its target host and a separate 256-bit browser
   secret. Store only the secret's hash; compare it in constant time. This
   prevents another browser behind the same NAT from redeeming a copied callback
   URL. The nonce-specific cookie must be host-only,
   `HttpOnly`, `SameSite=Lax`, `Secure` on HTTPS, scoped to the callback path, and
   expire with the nonce. Mark redirects carrying flow state
   `Cache-Control: no-store`.
+  Client-IP binding is opt-in via `HOLEPUNCH_OAUTH_ENABLE_CLIENT_IP_CHECK=true`.
 * Consume each flow at most once. A binding failure rejects and consumes it.
 * Do not place session cookies or browser secrets in URLs or logs; mark
   redirects and callback responses carrying flow state `Cache-Control: no-store`.

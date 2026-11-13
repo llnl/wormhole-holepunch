@@ -145,7 +145,7 @@ func Test_middlewareManager_PrepareAuthRedirect(t *testing.T) {
 	t.Run("allows missing client IP when IP binding is disabled", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		a := middlewareArgs()
-		a.DisableClientIPCheck = true
+		a.EnableClientIPCheck = false
 		m, err := newMiddlewareManager(mockKVStore(ctrl), echoProxy(ctrl), ll, a)
 		require.NoError(t, err)
 
@@ -155,6 +155,20 @@ func Test_middlewareManager_PrepareAuthRedirect(t *testing.T) {
 
 		require.Nil(t, sErr)
 		assert.NotEmpty(t, redirect.URL)
+	})
+
+	t.Run("requires client IP when IP binding is enabled", func(t *testing.T) {
+		a := middlewareArgs()
+		a.EnableClientIPCheck = true
+		m, err := newMiddlewareManager(mockKVStore(ctrl), echoProxy(ctrl), ll, a)
+		require.NoError(t, err)
+
+		detailsWithoutIP := details
+		detailsWithoutIP.ClientIP = ""
+		redirect, sErr := m.PrepareAuthRedirect("https://foo.example.com/app", detailsWithoutIP)
+
+		require.NotNil(t, sErr)
+		assert.Empty(t, redirect.URL)
 	})
 
 	t.Run("mints a bound nonce and redirects through the auth domain", func(t *testing.T) {
@@ -236,7 +250,10 @@ func Test_middlewareManager_PrepareAuthRedirect(t *testing.T) {
 	})
 
 	t.Run("requires a client IP for binding", func(t *testing.T) {
-		m := newTestMiddlewareManager(t, mockKVStore(ctrl))
+		a := middlewareArgs()
+		a.EnableClientIPCheck = true
+		m, err := newMiddlewareManager(mockKVStore(ctrl), echoProxy(ctrl), ll, a)
+		require.NoError(t, err)
 
 		_, sErr := m.PrepareAuthRedirect("https://foo.example.com/app", requests.RequestDetails{Host: "foo.example.com"})
 
