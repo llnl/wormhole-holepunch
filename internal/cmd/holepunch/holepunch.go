@@ -18,6 +18,7 @@ import (
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/ledger"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/proxyauth"
 	"github.com/llnl/wormhole-holepunch/internal/server"
+	"github.com/llnl/wormhole-holepunch/internal/version"
 	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
 )
 
@@ -204,6 +205,8 @@ func startXDSCmd(ctx context.Context, _ *cli.Command) error {
 func defaultInit(ctx context.Context) (context.Context, context.CancelFunc, logs.Logger) {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	ll := loadLogging()
+
+	ll.Info("holepunch version", ll.StringArg("version", version.GetVersion()))
 
 	if globalArgs.Development {
 		ll.Warn("running in development mode")
