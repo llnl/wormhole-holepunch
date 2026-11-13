@@ -50,28 +50,36 @@ upstream or Holepunch Auth.
 
 ## Components and Routing
 
-| Component           | Responsibility                                                |
-|---------------------|---------------------------------------------------------------|
-| Holepunch Auth      | Validates application sessions and starts OAuth flow          |
-| oauth2-proxy        | Performs OAuth and owns the session lifecycle                 |
-| Holepunch oauthmngr | Serves the callback: transfers the session, issues the cookie |
-| Shared ledger (KV)  | Tracks short-lived flows across oauthmngr replicas            |
+| Component            | Responsibility                                                         |
+|----------------------|------------------------------------------------------------------------|
+| Envoy                | Routes OAuth endpoints without ext_authz; binds client IP to callbacks |
+| Holepunch Auth       | Validates application sessions and mints the flow (middleware)         |
+| oauth2-proxy         | Performs OAuth and owns the session lifecycle                          |
+| Holepunch oauthmngr  | Serves the callback: captures, redeems, and issues the session cookie  |
+| Shared NATS KV store | Holds single-use flows shared by Holepunch Auth and oauthmngr replicas |
 
 The shared path constants live in [`internal/ctls/paths`](../internal/ctls/paths/paths.go),
 including the reserved prefix, OAuth endpoints, and admin API paths.
 
-OAuth endpoints bypass normal authentication only where required. The
-middleware strategy uses oauth2-proxy's standard `/oauth2` path on its dedicated
-auth host; the reverse strategy uses the reserved path on each application host:
+The OAuth strategy adds these routes, each with ext_authz disabled, alongside the
+application routes. The middleware strategy uses oauth2-proxy's standard
+`/oauth2` prefix on its dedicated auth host and the reserved callback path on
+every host; the reverse strategy uses the reserved `/oauth2` path on each
+application host:
 
-| Endpoint                             | Strategy    | Policy                       |
-|--------------------------------------|-------------|------------------------------|
-| `/oauth2/*`                           | Middleware  | Forward to oauth2-proxy      |
-| `/-/wormhole/oauth2/*`               | Reverse     | Forward to oauth2-proxy      |
-| `/-/wormhole/oauthmngr`              | Middleware  | Forward to oauthmngr         |
+| Prefix                  | Strategy   | Hosts                      | Forwarded to                     |
+|-------------------------|------------|----------------------------|----------------------------------|
+| `/oauth2`               | Middleware | Auth host                  | oauth2-proxy                     |
+| `/-/wormhole/oauthmngr` | Middleware | Auth and application hosts | oauthmngr (`--oauth-ledger-url`) |
+| `/-/wormhole/oauth2`    | Reverse    | Application hosts          | oauth2-proxy                     |
+
+On the callback route Envoy overwrites `x-wormhole-client-ip`,
+`x-wormhole-host`, and `x-wormhole-scheme` before forwarding (see
+[Security Requirements](#security-requirements)). The original `Host` header is
+preserved on all OAuth routes.
 
 OAuth expansion does not add a catch-all route for `/-/wormhole/*`; reserving
-the entire prefix is outside this package's responsibilities.
+the entire prefix is outside oauthmngr's responsibilities.
 
 ### Route Reporting
 
@@ -82,7 +90,8 @@ and the map structure are unchanged. This is report metadata only; clients
 cannot set route kinds through registry JSON.
 
 The admin command expands its local registry using the same OAuth strategy as
-auth and xDS. Configure all three with matching `--oauth-*` flags or their
+auth and xDS. Configure all three with matching `--oauth-*` flags (including
+`--oauth-ledger-url` for the middleware strategy) or their
 environment-variable equivalents so the report includes the same generated
 routes. The default `none` strategy adds no routes. Admin's token authenticator remains
 OAuth-disabled; expansion is used only for its registry and reporting.
