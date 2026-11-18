@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ const (
 	sessionBucket  = "holepunch_sessions"
 	tokenBucket    = "holepunch_tokens"
 	minKVTTL       = 100 * time.Millisecond
+	limitMarkerTTL = time.Second
 	natsHostPrefix = "nats://"
 )
 
@@ -113,9 +115,59 @@ func (c *Client) InitializeTokens(ctx context.Context) (KVStore, error) {
 	return c.initializeKV(ctx, tokenBucket)
 }
 
-// InitializeSessions starts or binds the session KeyValue store using the shared Client.
-func (c *Client) InitializeSessions(ctx context.Context) (KVStore, error) {
-	return c.initializeKV(ctx, sessionBucket)
+// InitializeSessions starts or binds the KeyValue store holding OAuth flows and the host
+// sessions issued from them using the shared Client. Flows are written for unauthenticated
+// requests, so the bucket is bounded to maxBytes and allows per-key TTLs: flows carry the
+// short nonce lifetime while ttl, the bucket-wide maximum, covers the longer session lifetime.
+// Both are independent of --tokens-ttl. An existing bucket is updated so the limits also apply
+// to earlier deployments.
+func (c *Client) InitializeSessions(ctx context.Context, ttl time.Duration, maxBytes int64) (KVStore, error) {
+	switch {
+	case ttl < minKVTTL:
+		return nil, fmt.Errorf("invalid TTL for KV bucket %q: %s; must be >= %s", sessionBucket, ttl, minKVTTL)
+	case maxBytes <= 0:
+		return nil, fmt.Errorf("invalid max bytes for KV bucket %q: %d; must be positive", sessionBucket, maxBytes)
+	}
+
+	c.ll.Info(fmt.Sprintf(
+		"establishing key/value %s store targeting %s (ttl=%s, max_bytes=%d)",
+		sessionBucket,
+		c.logHost,
+		ttl,
+		maxBytes,
+	))
+
+	maxValueSize := c.storageArgs.MaxValueSize
+	if maxValueSize <= 0 || int64(maxValueSize) > maxBytes {
+		maxValueSize = int32(min(maxBytes, math.MaxInt32)) //nolint:gosec // bounded above
+	}
+
+	kv, err := c.js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket:       sessionBucket,
+		Replicas:     c.storageArgs.NatsReplicas,
+		Storage:      jetstream.MemoryStorage,
+		MaxValueSize: maxValueSize,
+		MaxBytes:     maxBytes,
+		History:      1,
+		TTL:          ttl,
+		// Enables per-key TTLs, keeping the markers left by expiring keys only briefly.
+		LimitMarkerTTL: limitMarkerTTL,
+	})
+	if err != nil {
+		existing, bindErr := c.js.KeyValue(ctx, sessionBucket)
+		if bindErr != nil {
+			return nil, fmt.Errorf("create KV bucket %q failed: %w; bind failed: %w", sessionBucket, err, bindErr)
+		}
+
+		c.ll.Warnf("unable to apply limits to KV bucket %q, binding existing bucket: %s", sessionBucket, err)
+
+		kv = existing
+	}
+
+	return &kvStore{
+		client: c,
+		kv:     kv,
+	}, nil
 }
 
 // InitializeRoutes starts the NATS stream and consumer used for route management

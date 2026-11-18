@@ -11,25 +11,33 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 )
 
+// LoggingMiddleware stores a request-scoped logger (see logs.FromContext) carrying request
+// metadata, starts a server span when tracing is enabled, and logs each completed request.
+//
 // nolint: contextcheck
-func (d *data) loggingMiddleware(next http.Handler) http.Handler {
+func LoggingMiddleware(base logs.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		SetDefaultHeaders(w)
+
 		start := time.Now()
 		rw := newResponseWriter(w)
 
-		if r.URL.String() == defaultPrefix+"healthz" {
+		if r.URL.Path == paths.HealthPath {
 			next.ServeHTTP(rw, r)
 			return
 		}
 
 		// Build request logger
-		ll := d.ll.With(
+		ll := base.With(
 			[]slog.Attr{
 				slog.String("req."+keys.RequestIDHeader, r.Header.Get(keys.RequestIDHeader)),
 				slog.String("req.method", r.Method),
-				slog.String("req.path", r.URL.String()),
+				// Path only: query strings may carry secrets (e.g., the oauth callback nonce).
+				slog.String("req.path", r.URL.Path),
 				slog.String("req.remote-address", r.RemoteAddr),
 				slog.String("req.host", r.Host),
 			},
@@ -62,13 +70,13 @@ func (d *data) loggingMiddleware(next http.Handler) http.Handler {
 		r = r.WithContext(ctx)
 
 		// Put logger in request context (now includes the span ctx, if started)
-		r = setLogger(r, ll)
+		r = r.WithContext(logs.NewContext(r.Context(), ll))
 
 		ll.DebugCtx(r.Context(), "inbound request")
 
 		next.ServeHTTP(rw, r)
 
-		ll.DebugCtx(
+		ll.InfoCtx(
 			r.Context(),
 			"request completed",
 			ll.IntArg("status", rw.status),
@@ -77,12 +85,14 @@ func (d *data) loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func recoveryMiddleware(next http.Handler) http.Handler {
+// RecoveryMiddleware converts handler panics into 500 responses. It requires a logger in
+// the request context, so it must be wrapped by LoggingMiddleware.
+func RecoveryMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		//nolint:contextcheck
 		defer func() {
 			if err := recover(); err != nil {
-				ll := mustGetLogger(r.Context())
+				ll := logs.MustFromContext(r.Context())
 				ll.Error("recovered from panic: " + fmt.Sprint(err))
 
 				http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

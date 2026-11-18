@@ -10,6 +10,16 @@ sources: [
     }
   },
   {
+    id: "8958d7ea-d349-479a-a146-7cbe75e4c442",
+    src: "http://app.holepunch.localwormhole:3128/whoami",
+    dst: "http://mock-api:9001",
+    rules: {
+      allowed: {
+        users: [bar, foo]
+      }
+    }
+  },
+  {
     id: "c4f5af47-2e71-4a3a-a4c4-1710f7377bb3",
     src: "http://localhost:3128/ping",
     dst: "http://mock-api:9001",

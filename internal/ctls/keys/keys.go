@@ -14,9 +14,12 @@ const (
 		with a range of different interfaces.
 	*/
 
+	CacheControlHeader           = "cache-control"
+	ContentTypeOptionsHeader     = "x-content-type-options"
 	CookieHeader                 = "cookie"
 	CommunityHeader              = "x-wormhole-community"
 	Oauth2ProxyAccessTokenHeader = "x-auth-request-access-token" // nolint: gosec
+	ReferrerPolicyHeader         = "referrer-policy"
 	RequestIDHeader              = "x-request-id"
 	// RouteIDHeader identifies the registry route a request should be directed to. The
 	// value is retained for compatibility with the upstream tunnel (Piko).

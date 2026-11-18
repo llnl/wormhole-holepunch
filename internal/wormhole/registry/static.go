@@ -1,12 +1,14 @@
 package registry
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"sigs.k8s.io/yaml"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 )
 
 type StaticSource struct {
@@ -50,6 +52,11 @@ func loadStaticFile(ll logs.Logger, filename string) ([]RawSource, error) {
 	for _, s := range static.Sources {
 		rs := s.RawSource
 		rs.NoAuth = s.NoAuth
+
+		if reservedSource(rs) {
+			return nil, fmt.Errorf("static source %s: %s is within the reserved %s prefix",
+				rs.ID, rs.Source.Raw, paths.ReservedPrefix)
+		}
 
 		if rs.NoAuth {
 			ll.Warn("authorization disabled for static source: " + rs.ID)
