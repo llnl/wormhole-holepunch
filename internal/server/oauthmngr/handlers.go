@@ -1,7 +1,9 @@
 package oauthmngr
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
@@ -35,8 +37,6 @@ type callbackRequest struct {
 	authority string
 	scheme    string
 	cookies   map[string]string
-	// ll is the request-scoped logger from the server middleware.
-	ll logs.Logger
 }
 
 // callbackHandler proves browser continuity before capturing and redeeming the session.
@@ -55,7 +55,7 @@ func (d *data) callbackHandler(w http.ResponseWriter, r *http.Request) {
 
 	nonces := r.URL.Query()[oauthapi.NonceParam]
 	if len(nonces) != 1 || !oauthapi.ValidNonce(nonces[0]) {
-		ll.Warn("oauth callback rejected: missing or malformed nonce")
+		ll.WarnCtx(ctx, "oauth callback rejected: missing or malformed nonce")
 		w.WriteHeader(http.StatusBadRequest)
 
 		return
@@ -66,18 +66,17 @@ func (d *data) callbackHandler(w http.ResponseWriter, r *http.Request) {
 		authority: r.Header.Get(keys.WormholeHostHeader),
 		scheme:    r.Header.Get(keys.WormholeSchemeHeader),
 		cookies:   oauthapi.ParseCookies(r.Header.Values(keys.CookieHeader)...),
-		ll:        ll,
 	}
 
 	if req.authority == "" {
-		ll.Error("oauth callback rejected: request was not forwarded through Envoy's callback route")
+		ll.ErrorCtx(ctx, "oauth callback rejected: request was not forwarded through Envoy's callback route")
 		w.WriteHeader(http.StatusInternalServerError)
 
 		return
 	}
 
 	if req.scheme != "https" || oauthapi.HTTPSOrigin(req.authority) == "" {
-		ll.Warn("oauth callback requires an HTTPS origin")
+		ll.WarnCtx(ctx, "oauth callback requires an HTTPS origin")
 		w.WriteHeader(http.StatusBadRequest)
 
 		return
@@ -105,13 +104,15 @@ func allowCallbackMethod(w http.ResponseWriter, method string) bool {
 }
 
 func (d *data) authCallback(w http.ResponseWriter, r *http.Request, req callbackRequest) {
+	ll := logs.MustFromContext(r.Context())
+
 	switch r.Method {
 	case http.MethodGet:
 		d.beginCapture(w, r, req)
 	case http.MethodPost:
 		if site := r.Header.Get(keys.SecFetchSiteHeader); site != "same-origin" {
-			req.ll.Warnf("oauth complete rejected: %s %s, expected \"same-origin\"",
-				http.CanonicalHeaderKey(keys.SecFetchSiteHeader), logValue(site))
+			ll.WarnCtx(r.Context(), fmt.Sprintf("oauth complete rejected: %s %s, expected \"same-origin\"",
+				http.CanonicalHeaderKey(keys.SecFetchSiteHeader), logValue(site)))
 			w.WriteHeader(http.StatusForbidden)
 
 			return
@@ -121,10 +122,10 @@ func (d *data) authCallback(w http.ResponseWriter, r *http.Request, req callback
 		case "complete":
 			d.capture(w, r, req)
 		case proofFailed:
-			d.reportFailure(w, r, req)
+			d.reportFailure(w, r)
 		default:
-			req.ll.Warnf("oauth complete rejected: %s header %s, expected \"complete\"",
-				keys.WormholeOAuthProofHeader, logValue(proof))
+			ll.WarnCtx(r.Context(), fmt.Sprintf("oauth complete rejected: %s header %s, expected \"complete\"",
+				keys.WormholeOAuthProofHeader, logValue(proof)))
 			w.WriteHeader(http.StatusForbidden)
 		}
 	default:
@@ -136,17 +137,23 @@ func (d *data) authCallback(w http.ResponseWriter, r *http.Request, req callback
 // capture stores the auth-domain session against the nonce and returns the one-time code the
 // auth page redeems on the target host.
 func (d *data) capture(w http.ResponseWriter, r *http.Request, req callbackRequest) {
+	ll := logs.MustFromContext(r.Context())
+
+	ctx, end := ll.StartSpan(r.Context(), "capture")
+	defer end()
+
 	cookie, err := oauthapi.JoinCookie(req.cookies, d.cfg.ProxyCookieName, d.cfg.ProxySessionStore)
 
 	switch {
 	case errors.Is(err, oauthapi.ErrCookieNotFound):
-		req.ll.Warnf("oauth2-proxy cookie %q not found at auth domain", d.cfg.ProxyCookieName)
+		ll.WarnCtx(ctx, fmt.Sprintf("oauth2-proxy cookie %q not found at auth domain", d.cfg.ProxyCookieName))
 		w.WriteHeader(http.StatusUnauthorized)
 
 		return
 	case err != nil:
 		// Chunked cookies under Redis indicate a session-store configuration mismatch.
-		req.ll.Errorf("unusable oauth2-proxy cookie (proxy_session_store=%s): %s", d.cfg.ProxySessionStore, err)
+		ll.ErrorCtx(ctx, fmt.Sprintf("unusable oauth2-proxy cookie (proxy_session_store=%s): %s",
+			d.cfg.ProxySessionStore, err))
 		w.WriteHeader(http.StatusInternalServerError)
 
 		return
@@ -154,29 +161,29 @@ func (d *data) capture(w http.ResponseWriter, r *http.Request, req callbackReque
 
 	proof := req.cookies[oauthapi.AuthProofCookiePrefix+req.nonce]
 	if proof == "" {
-		req.ll.Warn("oauth complete rejected: no auth proof cookie; it expires 60s after the proof " +
+		ll.WarnCtx(ctx, "oauth complete rejected: no auth proof cookie; it expires 60s after the proof "+
 			"page loads, or was not sent by the browser")
 		w.WriteHeader(http.StatusUnauthorized)
 
 		return
 	}
 
-	resp, err := d.flows.Capture(r.Context(), ledger.CaptureRequest{
+	resp, err := d.flows.Capture(ctx, ledger.CaptureRequest{
 		Nonce:         req.nonce,
 		Authority:     req.authority,
 		SessionCookie: cookie,
 		AuthProof:     proof,
 	})
 	if err != nil {
-		w.WriteHeader(errorStatus(req.ll, "complete", err))
+		w.WriteHeader(errorStatus(ctx, "complete", err))
 		return
 	}
 
-	expireCookie(w, req, oauthapi.AuthProofCookiePrefix+req.nonce, "/")
+	expireCookie(ctx, w, req, oauthapi.AuthProofCookiePrefix+req.nonce, "/")
 	w.Header().Set(keys.ContentTypeHeader, "text/plain; charset=utf-8")
 
 	if _, err := w.Write([]byte(resp.RedeemCode)); err != nil {
-		req.ll.Warn("unable to return OAuth redemption code")
+		ll.WarnCtx(ctx, "unable to return OAuth redemption code")
 	}
 }
 
@@ -185,10 +192,15 @@ func (d *data) capture(w http.ResponseWriter, r *http.Request, req callbackReque
 // auth page. It expires the binding cookie after success or a definitive rejection, but
 // preserves it after transient failures.
 func (d *data) redeem(w http.ResponseWriter, r *http.Request, req callbackRequest) {
+	ll := logs.MustFromContext(r.Context())
+
+	ctx, end := ll.StartSpan(r.Context(), "redeem")
+	defer end()
+
 	codes := r.Header.Values(keys.WormholeOAuthCodeHeader)
 	if len(codes) != 1 || !oauthapi.ValidNonce(codes[0]) {
-		req.ll.Warnf("oauth redeem rejected: expected one well-formed %s header, got %d",
-			keys.WormholeOAuthCodeHeader, len(codes))
+		ll.WarnCtx(ctx, fmt.Sprintf("oauth redeem rejected: expected one well-formed %s header, got %d",
+			keys.WormholeOAuthCodeHeader, len(codes)))
 		w.WriteHeader(http.StatusBadRequest)
 
 		return
@@ -196,16 +208,16 @@ func (d *data) redeem(w http.ResponseWriter, r *http.Request, req callbackReques
 
 	bindingCookie := oauthapi.BindingCookieName(req.nonce)
 
-	resp, err := d.flows.Redeem(r.Context(), ledger.RedeemRequest{
+	resp, err := d.flows.Redeem(ctx, ledger.RedeemRequest{
 		Nonce:         req.nonce,
 		Authority:     req.authority,
 		BindingSecret: req.cookies[bindingCookie],
 		Code:          codes[0],
 	})
 	if err != nil {
-		status := errorStatus(req.ll, "redeem", err)
+		status := errorStatus(ctx, "redeem", err)
 		if status != http.StatusInternalServerError {
-			expireCookie(w, req, bindingCookie, "/")
+			expireCookie(ctx, w, req, bindingCookie, "/")
 		}
 
 		w.WriteHeader(status)
@@ -213,11 +225,11 @@ func (d *data) redeem(w http.ResponseWriter, r *http.Request, req callbackReques
 		return
 	}
 
-	expireCookie(w, req, bindingCookie, "/")
+	expireCookie(ctx, w, req, bindingCookie, "/")
 
 	sessionCookies, err := d.sessionCookies(resp.SessionHandle, req)
 	if err != nil {
-		req.ll.Errorf("unable to issue session cookie: %s", err)
+		ll.ErrorCtx(ctx, fmt.Sprintf("unable to issue session cookie: %s", err))
 		w.WriteHeader(http.StatusInternalServerError)
 
 		return
@@ -227,33 +239,35 @@ func (d *data) redeem(w http.ResponseWriter, r *http.Request, req callbackReques
 		http.SetCookie(w, c)
 	}
 
-	target := sameHostTarget(req, resp.TargetURL)
+	target := sameHostTarget(ctx, req, resp.TargetURL)
 
-	req.ll.InfoCtx(
-		r.Context(),
+	ll.InfoCtx(
+		ctx,
 		"oauth session exchanged: issued host-only session",
-		req.ll.StringArg("target", oauthapi.LogSafeURL(target)),
+		ll.StringArg("target", oauthapi.LogSafeURL(target)),
 	)
 
 	w.Header().Set(keys.ContentTypeHeader, "text/plain; charset=utf-8")
 
 	if _, err := w.Write([]byte(target)); err != nil {
-		req.ll.Warn("unable to return OAuth handoff destination")
+		ll.WarnCtx(ctx, "unable to return OAuth handoff destination")
 	}
 }
 
 // errorStatus maps a ledger error for the named proof page step to its response status, logging
 // it. The ledger logs the specific reason just before.
-func errorStatus(ll logs.Logger, step string, err error) int {
+func errorStatus(ctx context.Context, step string, err error) int {
+	ll := logs.MustFromContext(ctx)
+
 	switch {
 	case errors.Is(err, ledger.ErrInvalidRequest):
-		ll.Warnf("oauth %s rejected: %s", step, err)
+		ll.WarnCtx(ctx, fmt.Sprintf("oauth %s rejected: %s", step, err))
 		return http.StatusBadRequest
 	case errors.Is(err, ledger.ErrFlowUnavailable), errors.Is(err, ledger.ErrBindingMismatch):
-		ll.Warnf("oauth %s rejected: %s", step, err)
+		ll.WarnCtx(ctx, fmt.Sprintf("oauth %s rejected: %s", step, err))
 		return http.StatusUnauthorized
 	default:
-		ll.Errorf("oauth %s failed: %s", step, err)
+		ll.ErrorCtx(ctx, fmt.Sprintf("oauth %s failed: %s", step, err))
 		return http.StatusInternalServerError
 	}
 }
@@ -292,10 +306,10 @@ func (d *data) sessionCookies(handle string, req callbackRequest) ([]*http.Cooki
 	return out, nil
 }
 
-func expireCookie(w http.ResponseWriter, req callbackRequest, name, path string) {
+func expireCookie(ctx context.Context, w http.ResponseWriter, req callbackRequest, name, path string) {
 	c, err := cookies.NewResponse(name, "", cookies.Options{Path: path, MaxAge: -1, Scheme: req.scheme})
 	if err != nil {
-		req.ll.Warnf("unable to expire cookie %q: %s", name, err)
+		logs.MustFromContext(ctx).WarnCtx(ctx, fmt.Sprintf("unable to expire cookie %q: %s", name, err))
 		return
 	}
 
@@ -303,12 +317,12 @@ func expireCookie(w http.ResponseWriter, req callbackRequest, name, path string)
 }
 
 // sameHostTarget accepts only HTTPS URLs on the current origin; otherwise it returns "/".
-func sameHostTarget(req callbackRequest, target string) string {
+func sameHostTarget(ctx context.Context, req callbackRequest, target string) string {
 	u, err := url.Parse(target)
 	if err != nil ||
 		u.Scheme != "https" || u.User != nil ||
 		!oauthapi.SameHTTPSAuthority(u.Host, req.authority) {
-		req.ll.Warn("target URL is not on the callback host, redirecting to /")
+		logs.MustFromContext(ctx).WarnCtx(ctx, "target URL is not on the callback host, redirecting to /")
 		return "/"
 	}
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/streams"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/oauthapi"
 )
@@ -53,10 +54,11 @@ func (l *Store) ResolveHostSession(ctx context.Context, handle, host string) (st
 	}
 
 	if !oauthapi.SameHTTPSAuthority(host, s.Host) {
-		l.ll.Warn("oauth host session rejected: presented on a different host, revoking it")
+		ll := logs.FromContext(ctx, l.ll)
+		ll.WarnCtx(ctx, "oauth host session rejected: presented on a different host, revoking it")
 
 		if err := l.kvStore.Delete(ctx, key); err != nil {
-			l.ll.Warnf("failed to revoke misused oauth host session: %s", err)
+			ll.WarnCtx(ctx, fmt.Sprintf("failed to revoke misused oauth host session: %s", err))
 		}
 
 		return "", ErrBindingMismatch

@@ -102,6 +102,8 @@ func (l *Store) BeginCapture(ctx context.Context, nonce string) (CaptureStart, e
 
 // AuthorizeCapture binds the auth challenge to the application browser proof.
 func (l *Store) AuthorizeCapture(ctx context.Context, req AuthorizeRequest) error {
+	ll := logs.FromContext(ctx, l.ll)
+
 	hash, err := base64.RawURLEncoding.Strict().DecodeString(req.Challenge)
 	if !oauthapi.ValidNonce(req.Nonce) || err != nil || len(hash) != sha256.Size {
 		return ErrInvalidRequest
@@ -109,14 +111,14 @@ func (l *Store) AuthorizeCapture(ctx context.Context, req AuthorizeRequest) erro
 
 	_, err = l.transition(ctx, "authorize capture", req.Nonce, flowPending, func(rec *flowRecord) error {
 		if !oauthapi.SameHTTPSAuthority(req.Authority, rec.TargetSubdomain) {
-			l.ll.Warnf("ledger authorize capture rejected: requested on %q, but the flow targets %q",
-				req.Authority, rec.TargetSubdomain)
+			ll.WarnCtx(ctx, fmt.Sprintf("ledger authorize capture rejected: requested on %q, but the flow targets %q",
+				req.Authority, rec.TargetSubdomain))
 
 			return ErrBindingMismatch
 		}
 
 		if !matchesBinding(req.BindingSecret, rec.BrowserBindingHash) {
-			l.ll.Warn("ledger authorize capture rejected: binding cookie does not match the browser that started the flow")
+			ll.WarnCtx(ctx, "ledger authorize capture rejected: binding cookie does not match the browser that started the flow")
 			return ErrBindingMismatch
 		}
 
@@ -131,8 +133,9 @@ func (l *Store) AuthorizeCapture(ctx context.Context, req AuthorizeRequest) erro
 
 // Capture stores the session only after both browser proofs have been verified.
 func (l *Store) Capture(ctx context.Context, req CaptureRequest) (CaptureResponse, error) {
+	ll := logs.FromContext(ctx, l.ll)
 	if !oauthapi.ValidNonce(req.Nonce) || req.SessionCookie == "" || req.AuthProof == "" {
-		l.ll.Warn("ledger capture rejected: malformed request")
+		ll.WarnCtx(ctx, "ledger capture rejected: malformed request")
 		return CaptureResponse{}, ErrInvalidRequest
 	}
 
@@ -143,13 +146,14 @@ func (l *Store) Capture(ctx context.Context, req CaptureRequest) (CaptureRespons
 
 	rec, err := l.transition(ctx, "capture", req.Nonce, flowAuthorized, func(rec *flowRecord) error {
 		if !oauthapi.SameHTTPSAuthority(req.Authority, l.authDomain) {
-			l.ll.Warnf("ledger capture rejected: requested on %q, not the auth host %q", req.Authority, l.authDomain)
+			ll.WarnCtx(ctx, fmt.Sprintf("ledger capture rejected: requested on %q, not the auth host %q",
+				req.Authority, l.authDomain))
 
 			return ErrBindingMismatch
 		}
 
 		if !matchesBinding(req.AuthProof, rec.AuthProofHash) {
-			l.ll.Warn("ledger capture rejected: auth proof cookie does not match the authorized challenge " +
+			ll.WarnCtx(ctx, "ledger capture rejected: auth proof cookie does not match the authorized challenge "+
 				"(the proof page was reloaded or opened in another tab)")
 
 			return ErrBindingMismatch
@@ -175,26 +179,27 @@ func (l *Store) Capture(ctx context.Context, req CaptureRequest) (CaptureRespons
 // Redeem consumes a captured flow after validating its host, browser proof, and code, then
 // issues a host session. The response contains the handle, not the oauth2-proxy session.
 func (l *Store) Redeem(ctx context.Context, req RedeemRequest) (RedeemResponse, error) {
+	ll := logs.FromContext(ctx, l.ll)
 	if !oauthapi.ValidNonce(req.Nonce) || !oauthapi.ValidNonce(req.Code) {
-		l.ll.Warn("ledger redeem rejected: malformed request")
+		ll.WarnCtx(ctx, "ledger redeem rejected: malformed request")
 		return RedeemResponse{}, ErrInvalidRequest
 	}
 
 	rec, err := l.transition(ctx, "redeem", req.Nonce, flowCaptured, func(rec *flowRecord) error {
 		if !oauthapi.SameHTTPSAuthority(req.Authority, rec.TargetSubdomain) {
-			l.ll.Warnf("ledger redeem rejected: requested on %q, but the flow targets %q",
-				req.Authority, rec.TargetSubdomain)
+			ll.WarnCtx(ctx, fmt.Sprintf("ledger redeem rejected: requested on %q, but the flow targets %q",
+				req.Authority, rec.TargetSubdomain))
 
 			return ErrBindingMismatch
 		}
 
 		if !matchesBinding(req.BindingSecret, rec.BrowserBindingHash) {
-			l.ll.Warn("ledger redeem rejected: binding cookie does not match the browser that started the flow")
+			ll.WarnCtx(ctx, "ledger redeem rejected: binding cookie does not match the browser that started the flow")
 			return ErrBindingMismatch
 		}
 
 		if !matchesBinding(req.Code, rec.RedeemCodeHash) {
-			l.ll.Warn("ledger redeem rejected: redemption code does not match the one issued at capture")
+			ll.WarnCtx(ctx, "ledger redeem rejected: redemption code does not match the one issued at capture")
 			return ErrBindingMismatch
 		}
 
@@ -212,7 +217,7 @@ func (l *Store) Redeem(ctx context.Context, req RedeemRequest) (RedeemResponse, 
 	// The CAS above already enforces one-time-use, so a failure here is just untidy
 	// state left for the bucket TTL to reap - it must not fail the redemption.
 	if err := l.kvStore.Delete(ctx, flowKeyPrefix+req.Nonce); err != nil {
-		l.ll.Warnf("failed to delete redeemed oauth flow: %s", err)
+		ll.WarnCtx(ctx, fmt.Sprintf("failed to delete redeemed oauth flow: %s", err))
 	}
 
 	// The flow is already consumed, so a failure here requires the browser to start over.
@@ -294,6 +299,8 @@ func (l *Store) transition(
 	from flowState,
 	apply func(*flowRecord) error,
 ) (flowRecord, error) {
+	ll := logs.FromContext(ctx, l.ll)
+
 	rec, revision, err := l.readFlow(ctx, op, nonce, from)
 	if err != nil {
 		return flowRecord{}, err
@@ -312,7 +319,9 @@ func (l *Store) transition(
 	if err := l.kvStore.UpdateWithRevisionTTL(ctx, key, rec, revision, l.remainingTTL(original.CreatedAt)); err != nil {
 		// Usually a lost race against a concurrent request for the same flow; the store's
 		// error says when it is something else, such as per-key TTLs being unsupported.
-		l.ll.Warnf("ledger %s rejected: flow update failed (concurrent modification or store error): %s", op, err)
+		ll.WarnCtx(ctx, fmt.Sprintf("ledger %s rejected: flow update failed (concurrent modification or store error): %s",
+			op, err))
+
 		return flowRecord{}, ErrFlowUnavailable
 	}
 
@@ -324,30 +333,33 @@ func (l *Store) transition(
 }
 
 func (l *Store) readFlow(ctx context.Context, op, nonce string, from flowState) (flowRecord, uint64, error) {
+	ll := logs.FromContext(ctx, l.ll)
 	key := flowKeyPrefix + nonce
 
 	var rec flowRecord
 
 	revision, err := l.kvStore.GetWithRevision(ctx, key, &rec)
 	if err != nil {
-		l.ll.Warnf("ledger %s rejected: flow not found (expired, already redeemed, or unknown): %s", op, err)
+		ll.WarnCtx(ctx, fmt.Sprintf("ledger %s rejected: flow not found (expired, already redeemed, or unknown): %s",
+			op, err))
+
 		return flowRecord{}, 0, ErrFlowUnavailable
 	}
 
 	// The store isn't guaranteed to evict expired entries immediately, so CreatedAt/ttl
 	// remains the source of truth; a failed cleanup delete doesn't fail the call.
 	if time.Since(rec.CreatedAt) > l.ttl {
-		l.ll.Warnf("ledger %s rejected: nonce expired (age=%v)", op, time.Since(rec.CreatedAt))
+		ll.WarnCtx(ctx, fmt.Sprintf("ledger %s rejected: nonce expired (age=%v)", op, time.Since(rec.CreatedAt)))
 
 		if err := l.kvStore.Delete(ctx, key); err != nil {
-			l.ll.Debugf("failed to delete expired oauth flow: %s", err)
+			ll.DebugCtx(ctx, fmt.Sprintf("failed to delete expired oauth flow: %s", err))
 		}
 
 		return flowRecord{}, 0, ErrFlowUnavailable
 	}
 
 	if rec.State != from {
-		l.ll.Warnf("ledger %s rejected: unexpected flow state %q", op, rec.State)
+		ll.WarnCtx(ctx, fmt.Sprintf("ledger %s rejected: unexpected flow state %q", op, rec.State))
 		return flowRecord{}, 0, ErrFlowUnavailable
 	}
 

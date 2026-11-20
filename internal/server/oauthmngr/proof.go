@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/cookies"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/ledger"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/oauthapi"
@@ -65,17 +67,22 @@ const send = async (name, url, headers, credentials) => {
 </script></html>`))
 
 func (d *data) beginCapture(w http.ResponseWriter, r *http.Request, req callbackRequest) {
-	start, err := d.flows.BeginCapture(r.Context(), req.nonce)
+	ll := logs.MustFromContext(r.Context())
+
+	ctx, end := ll.StartSpan(r.Context(), "beginCapture")
+	defer end()
+
+	start, err := d.flows.BeginCapture(ctx, req.nonce)
 	if err != nil {
-		w.WriteHeader(errorStatus(req.ll, "begin capture", err))
+		w.WriteHeader(errorStatus(ctx, "begin capture", err))
 
 		return
 	}
 
 	target := oauthapi.HTTPSOrigin(start.TargetAuthority)
 	if target == "" || target == oauthapi.HTTPSOrigin(d.cfg.AuthDomain) {
-		req.ll.Warnf("oauth callback rejected: flow target %q is not a distinct HTTPS application origin",
-			start.TargetAuthority)
+		ll.WarnCtx(ctx, fmt.Sprintf("oauth callback rejected: flow target %q is not a distinct HTTPS application origin",
+			start.TargetAuthority))
 		w.WriteHeader(http.StatusBadRequest)
 
 		return
@@ -93,7 +100,7 @@ func (d *data) beginCapture(w http.ResponseWriter, r *http.Request, req callback
 
 	var body bytes.Buffer
 	if err := proofPage.Execute(&body, page); err != nil {
-		req.ll.Error("unable to render OAuth browser proof page")
+		ll.ErrorCtx(ctx, "unable to render OAuth browser proof page")
 		w.WriteHeader(http.StatusInternalServerError)
 
 		return
@@ -102,7 +109,7 @@ func (d *data) beginCapture(w http.ResponseWriter, r *http.Request, req callback
 	cookie, err := cookies.NewResponse(oauthapi.AuthProofCookiePrefix+req.nonce, start.AuthProof,
 		cookies.Options{Path: "/", MaxAge: 60, Scheme: "https"})
 	if err != nil {
-		req.ll.Error("unable to issue OAuth browser proof cookie")
+		ll.ErrorCtx(ctx, "unable to issue OAuth browser proof cookie")
 		w.WriteHeader(http.StatusInternalServerError)
 
 		return
@@ -114,7 +121,7 @@ func (d *data) beginCapture(w http.ResponseWriter, r *http.Request, req callback
 		"'; connect-src 'self' "+target+"; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
 	if _, err := body.WriteTo(w); err != nil {
-		req.ll.Warn("unable to return OAuth browser proof page")
+		ll.WarnCtx(ctx, "unable to return OAuth browser proof page")
 	}
 }
 
@@ -129,7 +136,7 @@ func (d *data) targetCallback(w http.ResponseWriter, r *http.Request, req callba
 		return
 	}
 
-	if !d.allowAuthOrigin(w, r, req) {
+	if !d.allowAuthOrigin(w, r) {
 		return
 	}
 
@@ -144,7 +151,8 @@ func (d *data) targetCallback(w http.ResponseWriter, r *http.Request, req callba
 
 // allowAuthOrigin admits only CORS requests from the auth page, answering preflights itself.
 // It reports whether the caller should go on to serve the POST.
-func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request, req callbackRequest) bool {
+func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request) bool {
+	ll := logs.MustFromContext(r.Context())
 	h := w.Header()
 	h.Add(keys.VaryHeader, http.CanonicalHeaderKey(keys.OriginHeader)+
 		", "+http.CanonicalHeaderKey(keys.SecFetchSiteHeader)+
@@ -153,7 +161,8 @@ func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request, req callb
 
 	origin := oauthapi.HTTPSOrigin(d.cfg.AuthDomain)
 	if got := r.Header.Get(keys.OriginHeader); origin == "" || got != origin {
-		req.ll.Warnf("oauth callback rejected: %s from origin %s, expected %q", r.Method, logValue(got), origin)
+		ll.WarnCtx(r.Context(), fmt.Sprintf("oauth callback rejected: %s from origin %s, expected %q",
+			r.Method, logValue(got), origin))
 		w.WriteHeader(http.StatusForbidden)
 
 		return false
@@ -165,9 +174,9 @@ func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request, req callb
 	h.Set(keys.AccessControlAllowCredentialsHeader, "true")
 
 	if site := r.Header.Get(keys.SecFetchSiteHeader); site != "same-site" {
-		req.ll.Warnf("oauth callback rejected: %s with %s %s, expected \"same-site\" "+
+		ll.WarnCtx(r.Context(), fmt.Sprintf("oauth callback rejected: %s with %s %s, expected \"same-site\" "+
 			"(the auth and application hosts must share a registrable domain)",
-			r.Method, http.CanonicalHeaderKey(keys.SecFetchSiteHeader), logValue(site))
+			r.Method, http.CanonicalHeaderKey(keys.SecFetchSiteHeader), logValue(site)))
 		w.WriteHeader(http.StatusForbidden)
 
 		return false
@@ -187,8 +196,9 @@ func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request, req callb
 
 	if method := r.Header.Get(keys.AccessControlRequestMethodHeader); r.Method == http.MethodOptions &&
 		(method != http.MethodPost || allowHeader == "") {
-		req.ll.Warnf("oauth callback rejected: preflight for method %s with headers %s, expected POST with %q or %q",
-			logValue(method), logValue(requested), keys.WormholeOAuthProofHeader, keys.WormholeOAuthCodeHeader)
+		ll.WarnCtx(r.Context(), fmt.Sprintf(
+			"oauth callback rejected: preflight for method %s with headers %s, expected POST with %q or %q",
+			logValue(method), logValue(requested), keys.WormholeOAuthProofHeader, keys.WormholeOAuthCodeHeader))
 		w.WriteHeader(http.StatusBadRequest)
 
 		return false
@@ -206,23 +216,28 @@ func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request, req callb
 }
 
 func (d *data) authorizeCapture(w http.ResponseWriter, r *http.Request, req callbackRequest) {
+	ll := logs.MustFromContext(r.Context())
+
+	ctx, end := ll.StartSpan(r.Context(), "authorizeCapture")
+	defer end()
+
 	binding := req.cookies[oauthapi.BindingCookieName(req.nonce)]
 	if binding == "" {
-		req.ll.Warnf("oauth authorize rejected: no binding cookie on %s; it expired with the nonce, "+
-			"was not sent by the browser, or sign-in finished in a different browser", req.authority)
+		ll.WarnCtx(ctx, fmt.Sprintf("oauth authorize rejected: no binding cookie on %s; it expired with the nonce, "+
+			"was not sent by the browser, or sign-in finished in a different browser", req.authority))
 		w.WriteHeader(http.StatusUnauthorized)
 
 		return
 	}
 
-	err := d.flows.AuthorizeCapture(r.Context(), ledger.AuthorizeRequest{
+	err := d.flows.AuthorizeCapture(ctx, ledger.AuthorizeRequest{
 		Nonce:         req.nonce,
 		Authority:     req.authority,
 		BindingSecret: binding,
 		Challenge:     r.Header.Get(keys.WormholeOAuthProofHeader),
 	})
 	if err != nil {
-		w.WriteHeader(errorStatus(req.ll, "authorize", err))
+		w.WriteHeader(errorStatus(ctx, "authorize", err))
 
 		return
 	}
@@ -236,7 +251,9 @@ const maxFailureReport = 1024
 // reportFailure logs a failure the proof page observed. Failures the browser blocks (CORS,
 // CSP, network) never reach oauthmngr otherwise. The report is unauthenticated, so it is only
 // logged, with every field bounded and quoted.
-func (d *data) reportFailure(w http.ResponseWriter, r *http.Request, req callbackRequest) {
+func (d *data) reportFailure(w http.ResponseWriter, r *http.Request) {
+	ll := logs.MustFromContext(r.Context())
+
 	var report struct {
 		Step   string `json:"step"`
 		Status int    `json:"status"`
@@ -255,8 +272,8 @@ func (d *data) reportFailure(w http.ResponseWriter, r *http.Request, req callbac
 			"oauth callback logs for a rejected preflight"
 	}
 
-	req.ll.Warnf("oauth sign-in failed in the browser at step %s: %s (%s)",
-		logValue(report.Step), detail, logValue(report.Error))
+	ll.WarnCtx(r.Context(), fmt.Sprintf("oauth sign-in failed in the browser at step %s: %s (%s)",
+		logValue(report.Step), detail, logValue(report.Error)))
 	w.WriteHeader(http.StatusNoContent)
 }
 
