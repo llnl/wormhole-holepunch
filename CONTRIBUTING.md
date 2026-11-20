@@ -77,7 +77,8 @@ structure.
 | `internal/cmds/*`     | Focused on organizing the CLI and loading/initializing elements of Holepunch based upon user provided arguments.    |
 | `internal/ctls/*`     | Internal packages and helpers meant to control shared functionality throughout the different Holepunch components.  |
 | `internal/envoy`      | Servers and logic supporting the management and interactions with the Envoy web proxy.                              |
-| `internal/server`     | Simple web server for administrative actions using the standard Go library.                                         |
+| `internal/server`     | Shared HTTP server plumbing (middleware, health/version handlers) built on the standard Go library.                 |
+| `internal/server/*`   | Service-specific HTTP APIs (e.g., `admin` for administrative actions, `oauthmngr` for the OAuth ledger callback).   |
 | `internal/wormhole/*` | Responsible for managing the interactions with other components of Wormhole (e.g., Token Service & Route Registry). |
 
 ## I Want To Contribute

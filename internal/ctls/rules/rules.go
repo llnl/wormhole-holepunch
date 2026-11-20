@@ -5,6 +5,7 @@ package rules
 import (
 	"fmt"
 	"net/http"
+	"reflect"
 	"regexp"
 
 	"github.com/go-playground/validator/v10"
@@ -139,7 +140,7 @@ func maximumHeader(s string) bool {
 }
 
 func optionalStrField(fl validator.FieldLevel, re *regexp.Regexp) bool {
-	if s, ok := fl.Field().Interface().(string); ok {
+	if s, ok := reflect.TypeAssert[string](fl.Field()); ok {
 		if maximumHeader(s) {
 			return false
 		} else if s == "" {

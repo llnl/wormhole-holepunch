@@ -6,9 +6,6 @@ import (
 	"time"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
-	"github.com/llnl/wormhole-holepunch/internal/ctls/rules"
-	"github.com/llnl/wormhole-holepunch/internal/wormhole/registry"
-	"github.com/llnl/wormhole-holepunch/internal/wormhole/token"
 )
 
 const (
@@ -17,45 +14,23 @@ const (
 	readHeaderTimeout = 5 * time.Second
 )
 
+// Configuration holds the listener settings shared by every Holepunch HTTP service.
 type Configuration struct {
 	Address string
 }
 
-type data struct {
-	cfg       Configuration
-	ll        logs.Logger
-	routeReg  registry.Router
-	tokenAuth token.Authenticator
-	vv        rules.Validator
+// Serve runs handler behind the shared middleware until ctx is canceled, then shuts down
+// gracefully.
+func (c Configuration) Serve(ctx context.Context, ll logs.Logger, handler http.Handler) error {
+	return runServer(ctx, ll, c.NewHTTPServer(ll, handler))
 }
 
-func (c Configuration) AdminAPI(
-	ctx context.Context,
-	ll logs.Logger,
-	routeReg registry.Router,
-	tokenAuth token.Authenticator,
-) error {
-	ll.Info("starting admin server on " + c.Address)
-
-	d := &data{
-		ll:        ll,
-		cfg:       c,
-		routeReg:  routeReg,
-		tokenAuth: tokenAuth,
-		vv:        rules.NewValidator(),
-	}
-
-	srv := c.initializeAdminServer(d, d.adminHandlers())
-
-	return runServer(ctx, ll, srv)
-}
-
-//
-
-func (c Configuration) initializeAdminServer(d *data, mux http.Handler) *http.Server {
+// NewHTTPServer wraps handler with default response headers, shared logging and recovery
+// middleware, and the server timeouts used by every Holepunch HTTP service.
+func (c Configuration) NewHTTPServer(ll logs.Logger, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              c.Address,
-		Handler:           d.loggingMiddleware(recoveryMiddleware(mux)),
+		Handler:           LoggingMiddleware(ll, RecoveryMiddleware(handler)),
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		ReadHeaderTimeout: readHeaderTimeout,
@@ -90,7 +65,7 @@ func waitForShutdown(ctx context.Context, ll logs.Logger, srv *http.Server, errC
 		// Context canceled, initiate graceful shutdown
 		ll.Info("context canceled, shutting down HTTP server...")
 
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {

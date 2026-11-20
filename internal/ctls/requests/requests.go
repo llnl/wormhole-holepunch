@@ -141,7 +141,7 @@ func (m manager) PostJSONBody(
 	ctx, endSpan := m.ll.StartSpan(ctx, "PostJSONBody")
 	defer endSpan()
 
-	headers["content-type"] = "application/json"
+	headers[keys.ContentTypeHeader] = "application/json"
 
 	return m.runAndUnmarshal(ctx, http.MethodPost, url, headers, []*http.Cookie{}, body, v)
 }
