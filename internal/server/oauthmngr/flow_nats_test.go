@@ -102,11 +102,13 @@ func assertPreflight(t *testing.T, rec *httptest.ResponseRecorder, header string
 	t.Helper()
 
 	h := rec.Header()
-	assert.Equal(t, "https://"+testAuthDomain, h.Get("Access-Control-Allow-Origin"))
-	assert.Equal(t, "true", h.Get("Access-Control-Allow-Credentials"))
-	assert.Equal(t, http.MethodPost, h.Get("Access-Control-Allow-Methods"))
-	assert.True(t, strings.EqualFold(header, h.Get("Access-Control-Allow-Headers")))
-	assert.Contains(t, h.Values("Vary"), "Origin, Sec-Fetch-Site, Access-Control-Request-Method, Access-Control-Request-Headers")
+	assert.Equal(t, "https://"+testAuthDomain, h.Get(keys.AccessControlAllowOriginHeader))
+	assert.Equal(t, "true", h.Get(keys.AccessControlAllowCredentialsHeader))
+	assert.Equal(t, http.MethodPost, h.Get(keys.AccessControlAllowMethodsHeader))
+	assert.True(t, strings.EqualFold(header, h.Get(keys.AccessControlAllowHeadersHeader)))
+	assert.Contains(t, h.Values(keys.VaryHeader), http.CanonicalHeaderKey(keys.OriginHeader)+", "+http.CanonicalHeaderKey(keys.SecFetchSiteHeader)+
+		", "+http.CanonicalHeaderKey(keys.AccessControlRequestMethodHeader)+
+		", "+http.CanonicalHeaderKey(keys.AccessControlRequestHeadersHeader))
 }
 
 // Test_proofPageFlow_NATS walks the full hand-off through the real handlers and ledger,
@@ -135,7 +137,7 @@ func Test_proofPageFlow_NATS(t *testing.T) {
 
 	callback := paths.CallbackPrefix + "?nonce=" + flow.Nonce
 	fromAuthPage := func(extra http.Header) http.Header {
-		h := http.Header{"Origin": {"https://" + testAuthDomain}, "Sec-Fetch-Site": {"same-site"}}
+		h := http.Header{http.CanonicalHeaderKey(keys.OriginHeader): {"https://" + testAuthDomain}, http.CanonicalHeaderKey(keys.SecFetchSiteHeader): {"same-site"}}
 		for k, v := range extra {
 			h[k] = v
 		}
@@ -147,29 +149,30 @@ func Test_proofPageFlow_NATS(t *testing.T) {
 	page := b.do(http.MethodGet, testAuthDomain, callback, nil)
 	require.Equal(t, http.StatusOK, page.Code)
 
-	m := regexp.MustCompile(`"X-Wormhole-OAuth-Proof": "([A-Za-z0-9_-]+)"`).FindStringSubmatch(page.Body.String())
+	m := regexp.MustCompile(`"` + regexp.QuoteMeta(http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader)) +
+		`": "([A-Za-z0-9_-]+)"`).FindStringSubmatch(page.Body.String())
 	require.Len(t, m, 2, "challenge rendered into the page")
 	challenge := m[1]
 
-	csp := page.Header().Get("Content-Security-Policy")
+	csp := page.Header().Get(keys.ContentSecurityPolicyHeader)
 	assert.Contains(t, csp, "connect-src 'self' https://foo.example.com;", "the page may fetch the target")
 
 	// 2. Authorize: preflight, then the credentialed POST to the target host.
 	pre := b.do(http.MethodOptions, "foo.example.com", callback, fromAuthPage(http.Header{
-		"Access-Control-Request-Method":  {"POST"},
-		"Access-Control-Request-Headers": {"x-wormhole-oauth-proof"},
+		http.CanonicalHeaderKey(keys.AccessControlRequestMethodHeader):  {"POST"},
+		http.CanonicalHeaderKey(keys.AccessControlRequestHeadersHeader): {keys.WormholeOAuthProofHeader},
 	}))
 	require.Equal(t, http.StatusNoContent, pre.Code)
-	assertPreflight(t, pre, proofHeader)
+	assertPreflight(t, pre, keys.WormholeOAuthProofHeader)
 
 	authorize := b.do(http.MethodPost, "foo.example.com", callback, fromAuthPage(http.Header{
-		http.CanonicalHeaderKey(proofHeader): {challenge},
+		http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader): {challenge},
 	}))
 	require.Equal(t, http.StatusNoContent, authorize.Code, "authorize")
 
 	// 3. Complete: same-origin POST on the auth host captures the session.
 	complete := b.do(http.MethodPost, testAuthDomain, callback, http.Header{
-		http.CanonicalHeaderKey(proofHeader): {"complete"}, "Sec-Fetch-Site": {"same-origin"},
+		http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader): {"complete"}, http.CanonicalHeaderKey(keys.SecFetchSiteHeader): {"same-origin"},
 	})
 	require.Equal(t, http.StatusOK, complete.Code, "complete")
 
@@ -178,18 +181,18 @@ func Test_proofPageFlow_NATS(t *testing.T) {
 
 	// 4. Redeem: preflight, then the credentialed POST carrying the code.
 	pre = b.do(http.MethodOptions, "foo.example.com", callback, fromAuthPage(http.Header{
-		"Access-Control-Request-Method":  {"POST"},
-		"Access-Control-Request-Headers": {"x-wormhole-oauth-code"},
+		http.CanonicalHeaderKey(keys.AccessControlRequestMethodHeader):  {"POST"},
+		http.CanonicalHeaderKey(keys.AccessControlRequestHeadersHeader): {keys.WormholeOAuthCodeHeader},
 	}))
 	require.Equal(t, http.StatusNoContent, pre.Code)
-	assertPreflight(t, pre, codeHeader)
+	assertPreflight(t, pre, keys.WormholeOAuthCodeHeader)
 
 	redeem := b.do(http.MethodPost, "foo.example.com", callback, fromAuthPage(http.Header{
-		http.CanonicalHeaderKey(codeHeader): {code},
+		http.CanonicalHeaderKey(keys.WormholeOAuthCodeHeader): {code},
 	}))
 	require.Equal(t, http.StatusOK, redeem.Code, "redeem")
 	assert.Equal(t, "https://foo.example.com/app", redeem.Body.String())
-	assert.Equal(t, "https://"+testAuthDomain, redeem.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "https://"+testAuthDomain, redeem.Header().Get(keys.AccessControlAllowOriginHeader))
 
 	// 5. The browser now holds a host session that resolves only on foo.
 	handle := b.jar["foo.example.com"]["_wormhole_session"]

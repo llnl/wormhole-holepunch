@@ -169,7 +169,7 @@ func Test_callback_capture(t *testing.T) {
 		t.Helper()
 		return serveCallback(t, flows, store, callback{
 			method: http.MethodPost, host: testAuthDomain,
-			headers: http.Header{http.CanonicalHeaderKey(proofHeader): {"complete"}, "Sec-Fetch-Site": {"same-origin"}},
+			headers: http.Header{http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader): {"complete"}, http.CanonicalHeaderKey(keys.SecFetchSiteHeader): {"same-origin"}},
 			cookies: append(cookieHeaders, oauthapi.AuthProofCookiePrefix+testNonce+"=auth-proof"),
 		})
 	}
@@ -228,7 +228,7 @@ func Test_callback_capture(t *testing.T) {
 			rec := complete(t, flows, oauthapi.SessionStoreCookie, "_oauth2_proxy=proxy-session")
 
 			assert.Equal(t, tc.status, rec.Code)
-			assert.Empty(t, rec.Header().Get("Location"))
+			assert.Empty(t, rec.Header().Get(keys.LocationHeader))
 		})
 	}
 }
@@ -242,8 +242,8 @@ func Test_callback_reportFailure(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, paths.CallbackPrefix+"?nonce="+testNonce, strings.NewReader(body))
 		req.Header.Set(keys.WormholeHostHeader, testAuthDomain)
 		req.Header.Set(keys.WormholeSchemeHeader, "https")
-		req.Header.Set("Sec-Fetch-Site", site)
-		req.Header.Set(proofHeader, proof)
+		req.Header.Set(keys.SecFetchSiteHeader, site)
+		req.Header.Set(keys.WormholeOAuthProofHeader, proof)
 
 		rec := httptest.NewRecorder()
 		d.callbackHandler(rec, req.WithContext(logs.NewContext(req.Context(), ll)))
@@ -283,36 +283,36 @@ func Test_callback_reportFailure(t *testing.T) {
 
 func Test_callback_authorizeCapture(t *testing.T) {
 	headers := http.Header{
-		"Origin":                             {"https://" + testAuthDomain},
-		"Sec-Fetch-Site":                     {"same-site"},
-		"Access-Control-Request-Method":      {"POST"},
-		"Access-Control-Request-Headers":     {strings.ToLower(proofHeader)},
-		http.CanonicalHeaderKey(proofHeader): {"challenge"},
+		http.CanonicalHeaderKey(keys.OriginHeader):                      {"https://" + testAuthDomain},
+		http.CanonicalHeaderKey(keys.SecFetchSiteHeader):                {"same-site"},
+		http.CanonicalHeaderKey(keys.AccessControlRequestMethodHeader):  {"POST"},
+		http.CanonicalHeaderKey(keys.AccessControlRequestHeadersHeader): {keys.WormholeOAuthProofHeader},
+		http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader):          {"challenge"},
 	}
 	flows := newLedger(t)
 	c := callback{method: http.MethodOptions, host: "foo.example.com", headers: headers}
 	rec := serveCallback(t, flows, oauthapi.SessionStoreCookie, c)
 	require.Equal(t, http.StatusNoContent, rec.Code, "preflight does not change flow state")
-	assert.Equal(t, headers.Get("Origin"), rec.Header().Get("Access-Control-Allow-Origin"))
-	assert.Equal(t, "true", rec.Header().Get("Access-Control-Allow-Credentials"))
-	assert.Equal(t, proofHeader, rec.Header().Get("Access-Control-Allow-Headers"))
+	assert.Equal(t, headers.Get(keys.OriginHeader), rec.Header().Get(keys.AccessControlAllowOriginHeader))
+	assert.Equal(t, "true", rec.Header().Get(keys.AccessControlAllowCredentialsHeader))
+	assert.Equal(t, http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader), rec.Header().Get(keys.AccessControlAllowHeadersHeader))
 
 	c.method = http.MethodPost
 	rec = serveCallback(t, flows, oauthapi.SessionStoreCookie, c)
 	require.Equal(t, http.StatusUnauthorized, rec.Code, "a different browser cannot authorize without the app cookie")
 
 	c.cookies = []string{oauthapi.BindingCookieName(testNonce) + "=app-proof"}
-	c.headers.Set("Origin", "https://sibling.example.com")
+	c.headers.Set(keys.OriginHeader, "https://sibling.example.com")
 	rec = serveCallback(t, flows, oauthapi.SessionStoreCookie, c)
 	require.Equal(t, http.StatusForbidden, rec.Code)
-	assert.Empty(t, rec.Header().Get("Access-Control-Allow-Origin"))
+	assert.Empty(t, rec.Header().Get(keys.AccessControlAllowOriginHeader))
 
-	c.headers.Set("Origin", "https://"+testAuthDomain)
-	c.headers.Set("Sec-Fetch-Site", "cross-site")
+	c.headers.Set(keys.OriginHeader, "https://"+testAuthDomain)
+	c.headers.Set(keys.SecFetchSiteHeader, "cross-site")
 	rec = serveCallback(t, flows, oauthapi.SessionStoreCookie, c)
 	require.Equal(t, http.StatusForbidden, rec.Code)
 
-	c.headers.Set("Sec-Fetch-Site", "same-site")
+	c.headers.Set(keys.SecFetchSiteHeader, "same-site")
 	flows.EXPECT().AuthorizeCapture(gomock.Any(), ledger.AuthorizeRequest{
 		Nonce: testNonce, Authority: "foo.example.com", BindingSecret: "app-proof", Challenge: "challenge",
 	}).Return(nil)
@@ -326,9 +326,9 @@ func redeemCallback(cookies ...string) callback {
 		method: http.MethodPost,
 		host:   "foo.example.com",
 		headers: http.Header{
-			"Origin":                            {"https://" + testAuthDomain},
-			"Sec-Fetch-Site":                    {"same-site"},
-			http.CanonicalHeaderKey(codeHeader): {testRedeemCode},
+			http.CanonicalHeaderKey(keys.OriginHeader):            {"https://" + testAuthDomain},
+			http.CanonicalHeaderKey(keys.SecFetchSiteHeader):      {"same-site"},
+			http.CanonicalHeaderKey(keys.WormholeOAuthCodeHeader): {testRedeemCode},
 		},
 		cookies: cookies,
 	}
@@ -344,7 +344,7 @@ func Test_callback_redeem(t *testing.T) {
 		})
 
 		assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
-		assert.Equal(t, "POST, OPTIONS", rec.Header().Get("Allow"))
+		assert.Equal(t, "POST, OPTIONS", rec.Header().Get(keys.AllowHeader))
 		assert.Empty(t, setCookies(rec))
 	})
 
@@ -361,9 +361,9 @@ func Test_callback_redeem(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "https://foo.example.com/app", rec.Body.String())
-		assert.Empty(t, rec.Header().Get("Location"), "the auth page navigates, not the redirect")
-		assert.Equal(t, "https://"+testAuthDomain, rec.Header().Get("Access-Control-Allow-Origin"))
-		assert.Equal(t, "true", rec.Header().Get("Access-Control-Allow-Credentials"))
+		assert.Empty(t, rec.Header().Get(keys.LocationHeader), "the auth page navigates, not the redirect")
+		assert.Equal(t, "https://"+testAuthDomain, rec.Header().Get(keys.AccessControlAllowOriginHeader))
+		assert.Equal(t, "true", rec.Header().Get(keys.AccessControlAllowCredentialsHeader))
 		assert.Equal(t, "no-store", rec.Header().Get(keys.CacheControlHeader))
 
 		got := setCookies(rec)
@@ -388,15 +388,15 @@ func Test_callback_redeem(t *testing.T) {
 	t.Run("preflight admits only the code header from the auth origin", func(t *testing.T) {
 		c := redeemCallback()
 		c.method = http.MethodOptions
-		c.headers.Set("Access-Control-Request-Method", http.MethodPost)
-		c.headers.Set("Access-Control-Request-Headers", strings.ToLower(codeHeader))
+		c.headers.Set(keys.AccessControlRequestMethodHeader, http.MethodPost)
+		c.headers.Set(keys.AccessControlRequestHeadersHeader, strings.ToLower(keys.WormholeOAuthCodeHeader))
 
 		flows := newLedger(t)
 		rec := serveCallback(t, flows, oauthapi.SessionStoreCookie, c)
 		require.Equal(t, http.StatusNoContent, rec.Code, "preflight does not change flow state")
-		assert.Equal(t, codeHeader, rec.Header().Get("Access-Control-Allow-Headers"))
+		assert.Equal(t, http.CanonicalHeaderKey(keys.WormholeOAuthCodeHeader), rec.Header().Get(keys.AccessControlAllowHeadersHeader))
 
-		c.headers.Set("Access-Control-Request-Headers", strings.ToLower(codeHeader)+", x-other")
+		c.headers.Set(keys.AccessControlRequestHeadersHeader, strings.ToLower(keys.WormholeOAuthCodeHeader)+", x-other")
 		rec = serveCallback(t, flows, oauthapi.SessionStoreCookie, c)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
@@ -408,10 +408,10 @@ func Test_callback_redeem(t *testing.T) {
 			// origin, so the proof page can report the status instead of an opaque error.
 			readable bool
 		}{
-			"sibling origin":   {func(h http.Header) { h.Set("Origin", "https://bar.example.com") }, false},
-			"target origin":    {func(h http.Header) { h.Set("Origin", "https://foo.example.com") }, false},
-			"no fetch headers": {func(h http.Header) { h.Del("Origin"); h.Del("Sec-Fetch-Site") }, false},
-			"cross-site fetch": {func(h http.Header) { h.Set("Sec-Fetch-Site", "cross-site") }, true},
+			"sibling origin":   {func(h http.Header) { h.Set(keys.OriginHeader, "https://bar.example.com") }, false},
+			"target origin":    {func(h http.Header) { h.Set(keys.OriginHeader, "https://foo.example.com") }, false},
+			"no fetch headers": {func(h http.Header) { h.Del(keys.OriginHeader); h.Del(keys.SecFetchSiteHeader) }, false},
+			"cross-site fetch": {func(h http.Header) { h.Set(keys.SecFetchSiteHeader, "cross-site") }, true},
 		} {
 			t.Run(name, func(t *testing.T) {
 				c := redeemCallback(bindingCookie + "=secret")
@@ -420,7 +420,7 @@ func Test_callback_redeem(t *testing.T) {
 				rec := serveCallback(t, newLedger(t), oauthapi.SessionStoreCookie, c)
 
 				assert.Equal(t, http.StatusForbidden, rec.Code)
-				assert.Equal(t, tc.readable, rec.Header().Get("Access-Control-Allow-Origin") == "https://"+testAuthDomain)
+				assert.Equal(t, tc.readable, rec.Header().Get(keys.AccessControlAllowOriginHeader) == "https://"+testAuthDomain)
 				assert.Empty(t, setCookies(rec))
 			})
 		}
@@ -433,7 +433,7 @@ func Test_callback_redeem(t *testing.T) {
 		} {
 			t.Run(name, func(t *testing.T) {
 				c := redeemCallback(bindingCookie + "=secret")
-				c.headers[http.CanonicalHeaderKey(codeHeader)] = codes
+				c.headers[http.CanonicalHeaderKey(keys.WormholeOAuthCodeHeader)] = codes
 
 				rec := serveCallback(t, newLedger(t), oauthapi.SessionStoreCookie, c)
 
@@ -553,11 +553,15 @@ func Test_data_oauthHandlers(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Contains(t, rec.Body.String(), "Finishing sign-in")
-		assert.Contains(t, rec.Body.String(), `{"X-Wormhole-OAuth-Code": code}, "include"`,
+		assert.Contains(t, rec.Body.String(), `"`+http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader)+`": "challenge"`)
+		assert.Contains(t, rec.Body.String(), `"`+http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader)+`": "complete"`)
+		assert.Contains(t, rec.Body.String(), `{"`+http.CanonicalHeaderKey(keys.WormholeOAuthCodeHeader)+`": code}, "include"`,
 			"the code is redeemed by a credentialed fetch from the auth page")
 		assert.NotContains(t, rec.Body.String(), "location.replace(code)",
 			"the code is never navigated to on the target host")
-		assert.Contains(t, rec.Body.String(), `"X-Wormhole-OAuth-Proof": "failed"`, "failures are reported")
+		assert.Contains(t, rec.Body.String(), `"`+http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader)+`": "failed"`, "failures are reported")
+		assert.Contains(t, rec.Body.String(), `"`+http.CanonicalHeaderKey(keys.ContentTypeHeader)+`": "application/json"`,
+			"failure reports use JSON")
 		proof := setCookies(rec)[oauthapi.AuthProofCookiePrefix+testNonce]
 		require.NotNil(t, proof)
 		assert.True(t, proof.Secure)

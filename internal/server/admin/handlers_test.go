@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/llnl/wormhole-holepunch/internal/args"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/rules"
@@ -66,7 +67,7 @@ func Test_data_ctlsReportHandler_routeKinds(t *testing.T) {
 			d.adminHandlers().ServeHTTP(rec, req.WithContext(logs.NewContext(req.Context(), ll)))
 
 			require.Equal(t, http.StatusOK, rec.Code)
-			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			assert.Equal(t, "application/json", rec.Header().Get(keys.ContentTypeHeader))
 			var report map[string]map[string]json.RawMessage
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &report))
 			require.Len(t, report, len(reg.FetchProxyControls()))
@@ -148,7 +149,7 @@ func Test_data_invalidateWebhookHandler(t *testing.T) {
 			}
 
 			req := initializeRequestWithLogger(t, tc.method, "/revoke", bytes.NewBufferString(tc.body))
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(keys.ContentTypeHeader, "application/json")
 			rr := httptest.NewRecorder()
 
 			d.invalidateWebhookHandler(rr, req)

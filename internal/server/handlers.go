@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/version"
@@ -61,7 +62,7 @@ func Generic404Handler(w http.ResponseWriter, r *http.Request) {
 
 // JSONContentHeader sets a JSON Content-Type on the response.
 func JSONContentHeader(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(keys.ContentTypeHeader, "application/json")
 }
 
 // MethodNotAllowed writes a 405 and returns true when r.Method is not allowedMethod.

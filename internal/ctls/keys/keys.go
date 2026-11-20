@@ -14,24 +14,39 @@ const (
 		with a range of different interfaces.
 	*/
 
-	CacheControlHeader           = "cache-control"
-	ContentTypeOptionsHeader     = "x-content-type-options"
-	CookieHeader                 = "cookie"
-	CommunityHeader              = "x-wormhole-community"
-	Oauth2ProxyAccessTokenHeader = "x-auth-request-access-token" // nolint: gosec
-	ReferrerPolicyHeader         = "referrer-policy"
-	RequestIDHeader              = "x-request-id"
+	AccessControlAllowCredentialsHeader = "access-control-allow-credentials"
+	AccessControlAllowHeadersHeader     = "access-control-allow-headers"
+	AccessControlAllowMethodsHeader     = "access-control-allow-methods"
+	AccessControlAllowOriginHeader      = "access-control-allow-origin"
+	AccessControlRequestHeadersHeader   = "access-control-request-headers"
+	AccessControlRequestMethodHeader    = "access-control-request-method"
+	AllowHeader                         = "allow"
+	CacheControlHeader                  = "cache-control"
+	ContentTypeHeader                   = "content-type"
+	ContentTypeOptionsHeader            = "x-content-type-options"
+	CookieHeader                        = "cookie"
+	CommunityHeader                     = "x-wormhole-community"
+	LocationHeader                      = "location"
+	Oauth2ProxyAccessTokenHeader        = "x-auth-request-access-token" // nolint: gosec
+	OriginHeader                        = "origin"
+	ReferrerPolicyHeader                = "referrer-policy"
+	RequestIDHeader                     = "x-request-id"
 	// RouteIDHeader identifies the registry route a request should be directed to. The
 	// value is retained for compatibility with the upstream tunnel (Piko).
-	RouteIDHeader        = "x-piko-endpoint"
-	SetCookieHeader      = "set-cookie"
-	TraceparentHeader    = "traceparent"
-	VersionHeader        = "x-holepunch-version"
-	XForwardHostHeader   = "x-forwarded-host"
-	XForwardProtoHeader  = "x-forwarded-proto"
-	XForwardURIHeader    = "x-forwarded-uri"
-	WormholeHostHeader   = "x-wormhole-host"
-	WormholeSchemeHeader = "x-wormhole-scheme"
+	RouteIDHeader               = "x-piko-endpoint"
+	SecFetchSiteHeader          = "sec-fetch-site"
+	SetCookieHeader             = "set-cookie"
+	TraceparentHeader           = "traceparent"
+	VaryHeader                  = "vary"
+	VersionHeader               = "x-holepunch-version"
+	XForwardHostHeader          = "x-forwarded-host"
+	XForwardProtoHeader         = "x-forwarded-proto"
+	XForwardURIHeader           = "x-forwarded-uri"
+	WormholeHostHeader          = "x-wormhole-host"
+	WormholeOAuthCodeHeader     = "x-wormhole-oauth-code"
+	WormholeOAuthProofHeader    = "x-wormhole-oauth-proof"
+	WormholeSchemeHeader        = "x-wormhole-scheme"
+	ContentSecurityPolicyHeader = "content-security-policy"
 )
 
 // DefaultRemovableHeaders returns a list of headers that are considered removable from

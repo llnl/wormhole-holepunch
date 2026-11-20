@@ -97,7 +97,7 @@ func allowCallbackMethod(w http.ResponseWriter, method string) bool {
 	case http.MethodGet, http.MethodPost, http.MethodOptions:
 		return true
 	default:
-		w.Header().Set("Allow", "GET, POST, OPTIONS")
+		w.Header().Set(keys.AllowHeader, "GET, POST, OPTIONS")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 
 		return false
@@ -109,24 +109,26 @@ func (d *data) authCallback(w http.ResponseWriter, r *http.Request, req callback
 	case http.MethodGet:
 		d.beginCapture(w, r, req)
 	case http.MethodPost:
-		if site := r.Header.Get("Sec-Fetch-Site"); site != "same-origin" {
-			req.ll.Warnf("oauth complete rejected: Sec-Fetch-Site %s, expected \"same-origin\"", logValue(site))
+		if site := r.Header.Get(keys.SecFetchSiteHeader); site != "same-origin" {
+			req.ll.Warnf("oauth complete rejected: %s %s, expected \"same-origin\"",
+				http.CanonicalHeaderKey(keys.SecFetchSiteHeader), logValue(site))
 			w.WriteHeader(http.StatusForbidden)
 
 			return
 		}
 
-		switch proof := r.Header.Get(proofHeader); proof {
+		switch proof := r.Header.Get(keys.WormholeOAuthProofHeader); proof {
 		case "complete":
 			d.capture(w, r, req)
 		case proofFailed:
 			d.reportFailure(w, r, req)
 		default:
-			req.ll.Warnf("oauth complete rejected: %s header %s, expected \"complete\"", proofHeader, logValue(proof))
+			req.ll.Warnf("oauth complete rejected: %s header %s, expected \"complete\"",
+				keys.WormholeOAuthProofHeader, logValue(proof))
 			w.WriteHeader(http.StatusForbidden)
 		}
 	default:
-		w.Header().Set("Allow", "GET, POST")
+		w.Header().Set(keys.AllowHeader, "GET, POST")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
 }
@@ -171,7 +173,7 @@ func (d *data) capture(w http.ResponseWriter, r *http.Request, req callbackReque
 	}
 
 	expireCookie(w, req, oauthapi.AuthProofCookiePrefix+req.nonce, "/")
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set(keys.ContentTypeHeader, "text/plain; charset=utf-8")
 
 	if _, err := w.Write([]byte(resp.RedeemCode)); err != nil {
 		req.ll.Warn("unable to return OAuth redemption code")
@@ -183,9 +185,10 @@ func (d *data) capture(w http.ResponseWriter, r *http.Request, req callbackReque
 // auth page. It expires the binding cookie after success or a definitive rejection, but
 // preserves it after transient failures.
 func (d *data) redeem(w http.ResponseWriter, r *http.Request, req callbackRequest) {
-	codes := r.Header.Values(codeHeader)
+	codes := r.Header.Values(keys.WormholeOAuthCodeHeader)
 	if len(codes) != 1 || !oauthapi.ValidNonce(codes[0]) {
-		req.ll.Warnf("oauth redeem rejected: expected one well-formed %s header, got %d", codeHeader, len(codes))
+		req.ll.Warnf("oauth redeem rejected: expected one well-formed %s header, got %d",
+			keys.WormholeOAuthCodeHeader, len(codes))
 		w.WriteHeader(http.StatusBadRequest)
 
 		return
@@ -232,7 +235,7 @@ func (d *data) redeem(w http.ResponseWriter, r *http.Request, req callbackReques
 		req.ll.StringArg("target", oauthapi.LogSafeURL(target)),
 	)
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set(keys.ContentTypeHeader, "text/plain; charset=utf-8")
 
 	if _, err := w.Write([]byte(target)); err != nil {
 		req.ll.Warn("unable to return OAuth handoff destination")

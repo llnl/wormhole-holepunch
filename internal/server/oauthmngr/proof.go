@@ -12,19 +12,13 @@ import (
 	"strings"
 
 	"github.com/llnl/wormhole-holepunch/internal/ctls/cookies"
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/ledger"
 	"github.com/llnl/wormhole-holepunch/internal/oauthmngr/oauthapi"
 )
 
-const (
-	// proofHeader carries the auth challenge to the target host, or "complete" to the auth host.
-	proofHeader = "X-Wormhole-Oauth-Proof"
-	// codeHeader carries the one-time redemption code to the target host.
-	codeHeader = "X-Wormhole-Oauth-Code"
-)
-
-// proofFailed is the proofHeader value the page uses to report a failed step to the auth host.
+// proofFailed reports a failed step to the auth host.
 const proofFailed = "failed"
 
 // proofPage finishes the flow from the auth origin. Every request to the target host is a
@@ -48,11 +42,11 @@ const send = async (name, url, headers, credentials) => {
     return res;
 };
 (async () => {
-    await send("authorize", {{.Target}}, {"X-Wormhole-OAuth-Proof": {{.Challenge}}}, "include");
+    await send("authorize", {{.Target}}, { {{- .ProofHeader -}}: {{.Challenge}}}, "include");
     const complete = await send("complete", window.location.href,
-        {"X-Wormhole-OAuth-Proof": "complete"}, "same-origin");
+        { {{- .ProofHeader -}}: "complete"}, "same-origin");
     const code = await complete.text();
-    const redeem = await send("redeem", {{.Target}}, {"X-Wormhole-OAuth-Code": code}, "include");
+    const redeem = await send("redeem", {{.Target}}, { {{- .CodeHeader -}}: code}, "include");
     step = "navigate";
     window.location.replace(await redeem.text());
 })().catch((err) => {
@@ -64,7 +58,7 @@ const send = async (name, url, headers, credentials) => {
         (status ? "HTTP " + status : "request blocked") + "). Return to the application and try again.";
     fetch(window.location.href, {
         method: "POST", credentials: "same-origin", keepalive: true,
-        headers: {"X-Wormhole-OAuth-Proof": "failed", "Content-Type": "application/json"},
+        headers: { {{- .ProofHeader -}}: "failed", {{.ContentTypeHeader}}: "application/json"},
         body: JSON.stringify({step, status, error})
     }).catch(() => {});
 });
@@ -88,10 +82,13 @@ func (d *data) beginCapture(w http.ResponseWriter, r *http.Request, req callback
 	}
 
 	// The challenge is random and HTML-only; the cookie carries its preimage.
-	page := struct{ CSPNonce, Target, Challenge string }{
-		CSPNonce:  rand.Text(),
-		Target:    target + paths.CallbackPrefix + "?nonce=" + url.QueryEscape(req.nonce),
-		Challenge: start.Challenge,
+	page := struct{ CSPNonce, Target, Challenge, ProofHeader, CodeHeader, ContentTypeHeader string }{
+		CSPNonce:          rand.Text(),
+		Target:            target + paths.CallbackPrefix + "?nonce=" + url.QueryEscape(req.nonce),
+		Challenge:         start.Challenge,
+		ProofHeader:       http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader),
+		CodeHeader:        http.CanonicalHeaderKey(keys.WormholeOAuthCodeHeader),
+		ContentTypeHeader: http.CanonicalHeaderKey(keys.ContentTypeHeader),
 	}
 
 	var body bytes.Buffer
@@ -112,8 +109,8 @@ func (d *data) beginCapture(w http.ResponseWriter, r *http.Request, req callback
 	}
 
 	http.SetCookie(w, cookie)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+page.CSPNonce+
+	w.Header().Set(keys.ContentTypeHeader, "text/html; charset=utf-8")
+	w.Header().Set(keys.ContentSecurityPolicyHeader, "default-src 'none'; script-src 'nonce-"+page.CSPNonce+
 		"'; connect-src 'self' "+target+"; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
 
 	if _, err := body.WriteTo(w); err != nil {
@@ -122,11 +119,11 @@ func (d *data) beginCapture(w http.ResponseWriter, r *http.Request, req callback
 }
 
 // targetCallback serves the target host's callback, which only the auth page's credentialed
-// fetches use: a POST carrying codeHeader redeems the flow, any other POST authorizes it.
+// fetches use: a POST carrying the code header redeems the flow, any other POST authorizes it.
 func (d *data) targetCallback(w http.ResponseWriter, r *http.Request, req callbackRequest) {
 	if r.Method != http.MethodPost && r.Method != http.MethodOptions {
 		// Redemption by navigation would expose the code to script served by the target host.
-		w.Header().Set("Allow", "POST, OPTIONS")
+		w.Header().Set(keys.AllowHeader, "POST, OPTIONS")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 
 		return
@@ -136,7 +133,7 @@ func (d *data) targetCallback(w http.ResponseWriter, r *http.Request, req callba
 		return
 	}
 
-	if r.Header.Get(codeHeader) != "" {
+	if r.Header.Get(keys.WormholeOAuthCodeHeader) != "" {
 		d.redeem(w, r, req)
 
 		return
@@ -149,10 +146,13 @@ func (d *data) targetCallback(w http.ResponseWriter, r *http.Request, req callba
 // It reports whether the caller should go on to serve the POST.
 func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request, req callbackRequest) bool {
 	h := w.Header()
-	h.Add("Vary", "Origin, Sec-Fetch-Site, Access-Control-Request-Method, Access-Control-Request-Headers")
+	h.Add(keys.VaryHeader, http.CanonicalHeaderKey(keys.OriginHeader)+
+		", "+http.CanonicalHeaderKey(keys.SecFetchSiteHeader)+
+		", "+http.CanonicalHeaderKey(keys.AccessControlRequestMethodHeader)+
+		", "+http.CanonicalHeaderKey(keys.AccessControlRequestHeadersHeader))
 
 	origin := oauthapi.HTTPSOrigin(d.cfg.AuthDomain)
-	if got := r.Header.Get("Origin"); origin == "" || got != origin {
+	if got := r.Header.Get(keys.OriginHeader); origin == "" || got != origin {
 		req.ll.Warnf("oauth callback rejected: %s from origin %s, expected %q", r.Method, logValue(got), origin)
 		w.WriteHeader(http.StatusForbidden)
 
@@ -161,12 +161,13 @@ func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request, req callb
 
 	// From here the requester is the auth page, so let it read the status of any rejection;
 	// without these headers the browser only reports an opaque network error.
-	h.Set("Access-Control-Allow-Origin", origin)
-	h.Set("Access-Control-Allow-Credentials", "true")
+	h.Set(keys.AccessControlAllowOriginHeader, origin)
+	h.Set(keys.AccessControlAllowCredentialsHeader, "true")
 
-	if site := r.Header.Get("Sec-Fetch-Site"); site != "same-site" {
-		req.ll.Warnf("oauth callback rejected: %s with Sec-Fetch-Site %s, expected \"same-site\" "+
-			"(the auth and application hosts must share a registrable domain)", r.Method, logValue(site))
+	if site := r.Header.Get(keys.SecFetchSiteHeader); site != "same-site" {
+		req.ll.Warnf("oauth callback rejected: %s with %s %s, expected \"same-site\" "+
+			"(the auth and application hosts must share a registrable domain)",
+			r.Method, http.CanonicalHeaderKey(keys.SecFetchSiteHeader), logValue(site))
 		w.WriteHeader(http.StatusForbidden)
 
 		return false
@@ -175,27 +176,27 @@ func (d *data) allowAuthOrigin(w http.ResponseWriter, r *http.Request, req callb
 	// A preflight may ask for exactly one of the two headers the auth page sends.
 	var allowHeader string
 
-	requested := r.Header.Get("Access-Control-Request-Headers")
+	requested := r.Header.Get(keys.AccessControlRequestHeadersHeader)
 
 	switch {
-	case strings.EqualFold(requested, proofHeader):
-		allowHeader = proofHeader
-	case strings.EqualFold(requested, codeHeader):
-		allowHeader = codeHeader
+	case strings.EqualFold(requested, keys.WormholeOAuthProofHeader):
+		allowHeader = http.CanonicalHeaderKey(keys.WormholeOAuthProofHeader)
+	case strings.EqualFold(requested, keys.WormholeOAuthCodeHeader):
+		allowHeader = http.CanonicalHeaderKey(keys.WormholeOAuthCodeHeader)
 	}
 
-	if method := r.Header.Get("Access-Control-Request-Method"); r.Method == http.MethodOptions &&
+	if method := r.Header.Get(keys.AccessControlRequestMethodHeader); r.Method == http.MethodOptions &&
 		(method != http.MethodPost || allowHeader == "") {
 		req.ll.Warnf("oauth callback rejected: preflight for method %s with headers %s, expected POST with %q or %q",
-			logValue(method), logValue(requested), proofHeader, codeHeader)
+			logValue(method), logValue(requested), keys.WormholeOAuthProofHeader, keys.WormholeOAuthCodeHeader)
 		w.WriteHeader(http.StatusBadRequest)
 
 		return false
 	}
 
 	if r.Method == http.MethodOptions {
-		h.Set("Access-Control-Allow-Methods", http.MethodPost)
-		h.Set("Access-Control-Allow-Headers", allowHeader)
+		h.Set(keys.AccessControlAllowMethodsHeader, http.MethodPost)
+		h.Set(keys.AccessControlAllowHeadersHeader, allowHeader)
 		w.WriteHeader(http.StatusNoContent)
 
 		return false
@@ -218,7 +219,7 @@ func (d *data) authorizeCapture(w http.ResponseWriter, r *http.Request, req call
 		Nonce:         req.nonce,
 		Authority:     req.authority,
 		BindingSecret: binding,
-		Challenge:     r.Header.Get(proofHeader),
+		Challenge:     r.Header.Get(keys.WormholeOAuthProofHeader),
 	})
 	if err != nil {
 		w.WriteHeader(errorStatus(req.ll, "authorize", err))

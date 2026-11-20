@@ -240,7 +240,7 @@ func (s *authServer) denyRequest(
 	headers := append([]*core.HeaderValueOption{
 		{
 			Header: &core.HeaderValue{
-				Key:   "content-type",
+				Key:   keys.ContentTypeHeader,
 				Value: "application/json",
 			},
 		},
@@ -295,7 +295,7 @@ func (s *authServer) redirectRequest(
 	headers := append([]*core.HeaderValueOption{
 		{
 			Header: &core.HeaderValue{
-				Key:   "location",
+				Key:   keys.LocationHeader,
 				Value: redirectURL, // Redirect to this URL
 			},
 		}, {

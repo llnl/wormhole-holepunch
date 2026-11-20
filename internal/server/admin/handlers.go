@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/llnl/wormhole-holepunch/internal/ctls/keys"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/logs"
 	"github.com/llnl/wormhole-holepunch/internal/ctls/paths"
 	"github.com/llnl/wormhole-holepunch/internal/server"
@@ -92,7 +93,7 @@ func (d *data) invalidateWebhookHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Respond immediately (async processing)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set(keys.ContentTypeHeader, "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusAccepted)
 
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -126,7 +127,7 @@ func (d *data) routesWebhookHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set(keys.ContentTypeHeader, "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusAccepted)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status": "accepted",
