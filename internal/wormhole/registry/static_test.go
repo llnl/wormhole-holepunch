@@ -37,6 +37,20 @@ func Test_loadStaticFile(t *testing.T) {
 		assert.False(t, got[1].NoAuth)
 	})
 
+	t.Run("reserved prefix rejected", func(t *testing.T) {
+		filename := t.TempDir() + "/static.yaml"
+		require.NoError(t, os.WriteFile(filename, []byte(`
+sources:
+  - id: "4ff69450-30eb-489b-bb90-15f25cd88c7d"
+    dst: "https://foo.example.com"
+    src: "https://foo.example.com/-/wormhole/oauthmngr"
+`), 0600))
+
+		_, err := loadStaticFile(logs.InitializeDiscard(), filename)
+
+		require.ErrorContains(t, err, "reserved")
+	})
+
 	t.Run("no_auth decoded from yaml", func(t *testing.T) {
 		filename := t.TempDir() + "/static.yaml"
 		require.NoError(t, os.WriteFile(filename, []byte(`

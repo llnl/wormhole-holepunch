@@ -43,6 +43,7 @@ build-container:
 	${CONTAINER_RUNTIME} build \
 		-f build/image/Containerfile \
 		--build-arg GO_VERSION=${GO_SEMVER} \
+		--build-arg VERSION=${VERSION} \
 		-t ${HOLEPUNCH_IMAGE}:${HOLEPUNCH_TAG} \
 		.
 
@@ -55,9 +56,17 @@ vendor:
 	${GOCMD} mod tidy
 	${GOCMD} mod vendor
 
-.PHONY: dev #D Deploy local dev/test environment using podman-compose.
+.PHONY: dev #D Deploy local dev/test environment using Compose (foreground).
 dev: build-linux-dev dev-down dev-permissions
 	${CONTAINER_RUNTIME} compose -p holepunch-dev -f ${ROOT_DIR}/build/dev/compose.yaml up
+
+.PHONY: dev-up #D Build and deploy the local dev/test environment in the background.
+dev-up: build-linux-dev dev-down dev-permissions
+	${CONTAINER_RUNTIME} compose -p holepunch-dev -f ${ROOT_DIR}/build/dev/compose.yaml up -d
+
+.PHONY: dev-test #D Test the full local OAuth middleware flow (requires make dev or dev-up).
+dev-test:
+	python3 ${ROOT_DIR}/tools/dev-auth-test.py
 
 .PHONY: dev-down #D Shutdown the local  podman-compose environment.
 dev-down:

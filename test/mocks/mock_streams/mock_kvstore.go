@@ -12,6 +12,7 @@ package mock_streams
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	gomock "go.uber.org/mock/gomock"
 )
@@ -53,6 +54,34 @@ func (m *MockKVStore) AllKeys(ctx context.Context) ([]string, error) {
 func (mr *MockKVStoreMockRecorder) AllKeys(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllKeys", reflect.TypeOf((*MockKVStore)(nil).AllKeys), ctx)
+}
+
+// Create mocks base method.
+func (m *MockKVStore) Create(ctx context.Context, key string, val any) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, key, val)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockKVStoreMockRecorder) Create(ctx, key, val any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockKVStore)(nil).Create), ctx, key, val)
+}
+
+// CreateWithTTL mocks base method.
+func (m *MockKVStore) CreateWithTTL(ctx context.Context, key string, val any, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWithTTL", ctx, key, val, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWithTTL indicates an expected call of CreateWithTTL.
+func (mr *MockKVStoreMockRecorder) CreateWithTTL(ctx, key, val, ttl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWithTTL", reflect.TypeOf((*MockKVStore)(nil).CreateWithTTL), ctx, key, val, ttl)
 }
 
 // Delete mocks base method.
@@ -124,4 +153,18 @@ func (m *MockKVStore) UpdateWithRevision(ctx context.Context, key string, val an
 func (mr *MockKVStoreMockRecorder) UpdateWithRevision(ctx, key, val, revision any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWithRevision", reflect.TypeOf((*MockKVStore)(nil).UpdateWithRevision), ctx, key, val, revision)
+}
+
+// UpdateWithRevisionTTL mocks base method.
+func (m *MockKVStore) UpdateWithRevisionTTL(ctx context.Context, key string, val any, revision uint64, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateWithRevisionTTL", ctx, key, val, revision, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateWithRevisionTTL indicates an expected call of UpdateWithRevisionTTL.
+func (mr *MockKVStoreMockRecorder) UpdateWithRevisionTTL(ctx, key, val, revision, ttl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateWithRevisionTTL", reflect.TypeOf((*MockKVStore)(nil).UpdateWithRevisionTTL), ctx, key, val, revision, ttl)
 }
