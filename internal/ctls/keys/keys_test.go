@@ -35,3 +35,17 @@ func Test_DefaultRemovableHeaders(t *testing.T) {
 		assert.GreaterOrEqual(t, len(got), 6)
 	})
 }
+
+func Test_OAuthCallbackHeaders(t *testing.T) {
+	assert.Equal(t, "access-control-allow-credentials", AccessControlAllowCredentialsHeader)
+	assert.Equal(t, "access-control-allow-headers", AccessControlAllowHeadersHeader)
+	assert.Equal(t, "access-control-allow-methods", AccessControlAllowMethodsHeader)
+	assert.Equal(t, "access-control-allow-origin", AccessControlAllowOriginHeader)
+	assert.Equal(t, "access-control-request-headers", AccessControlRequestHeadersHeader)
+	assert.Equal(t, "access-control-request-method", AccessControlRequestMethodHeader)
+	assert.Equal(t, "allow", AllowHeader)
+	assert.Equal(t, "content-security-policy", ContentSecurityPolicyHeader)
+	assert.Equal(t, "vary", VaryHeader)
+	assert.Equal(t, "x-wormhole-oauth-code", WormholeOAuthCodeHeader)
+	assert.Equal(t, "x-wormhole-oauth-proof", WormholeOAuthProofHeader)
+}

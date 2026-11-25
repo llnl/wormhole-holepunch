@@ -31,6 +31,9 @@ type RequestDetails struct {
 	// Path use specified in request, rely on Envoy/proxy cleanup rules, by default no
 	// additional validation preformed.
 	Path string
+	// ClientIP is the downstream remote address determined by Envoy's HCM
+	// (attributes.source.address). It is not currently used for OAuth flow binding.
+	ClientIP string
 }
 
 //

@@ -67,3 +67,33 @@ func Test_RawSource_NoAuthNotEncodedToJSON(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.False(t, got[0].NoAuth)
 }
+
+func Test_reservedSource(t *testing.T) {
+	tests := map[string]bool{
+		"https://foo.example.com/":                     false,
+		"https://foo.example.com":                      false,
+		"https://foo.example.com/app":                  false,
+		"https://foo.example.com/-/wormholes":          false,
+		"https://foo.example.com/-/Wormhole/":          false,
+		"https://foo.example.com/-/wormhole":           true,
+		"https://foo.example.com/-/wormhole/":          true,
+		"https://foo.example.com/-/wormhole/oauth2":    true,
+		"https://foo.example.com/-/wormhole/oauthmngr": true,
+		"https://foo.example.com//-//wormhole/x":       true,
+		"https://foo.example.com/app/../-/wormhole/x":  true,
+		"https://foo.example.com/%2D/wormhole/x":       true,
+	}
+
+	for src, reserved := range tests {
+		t.Run(src, func(t *testing.T) {
+			u, err := keys.NormalizeURL(src)
+			require.NoError(t, err)
+
+			assert.Equal(t, reserved, reservedSource(RawSource{Source: u}))
+		})
+	}
+
+	t.Run("source without URL", func(t *testing.T) {
+		assert.False(t, reservedSource(RawSource{}))
+	})
+}

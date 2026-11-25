@@ -136,6 +136,10 @@ func (s *authServer) establishReqDetails(req *auth.CheckRequest) requests.Reques
 		RouteID:     ctxExt[keys.RouteIDHeader],
 		Host:        ctxExt[keys.WormholeHostHeader],
 		Scheme:      ctxExt[keys.WormholeSchemeHeader],
+		// The path as normalized by Envoy (HCM normalize_path/merge_slashes), including any
+		// query string, used to return the user to their request once an OAuth flow completes.
+		Path:     http.GetPath(),
+		ClientIP: req.GetAttributes().GetSource().GetAddress().GetSocketAddress().GetAddress(),
 	}
 
 	// When this is established we've already ensure that the server is running in development mode,
@@ -236,7 +240,7 @@ func (s *authServer) denyRequest(
 	headers := append([]*core.HeaderValueOption{
 		{
 			Header: &core.HeaderValue{
-				Key:   "content-type",
+				Key:   keys.ContentTypeHeader,
 				Value: "application/json",
 			},
 		},
@@ -291,7 +295,7 @@ func (s *authServer) redirectRequest(
 	headers := append([]*core.HeaderValueOption{
 		{
 			Header: &core.HeaderValue{
-				Key:   "location",
+				Key:   keys.LocationHeader,
 				Value: redirectURL, // Redirect to this URL
 			},
 		}, {
